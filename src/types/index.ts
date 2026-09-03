@@ -25,8 +25,11 @@ export interface FoodItem {
   days_remaining: number;
   status: FoodStatusType;
   photo_url?: string | null;
+  storage_path?: string | null;
   notes?: string | null;
   created_by?: string;
+  consumed_by?: string | null;
+  consumed_at?: string | null;
 }
 
 export interface CreateFoodDto {
@@ -37,6 +40,7 @@ export interface CreateFoodDto {
   container_tag?: string;
   shelf_life_days: number;
   photo_url?: string | null;
+  storage_path?: string | null;
   notes?: string | null;
   created_by?: string;
 }
@@ -53,6 +57,7 @@ export interface RecipeSuggestion {
   id: string;
   title: string;
   cook_time_minutes: number;
+  food_ids: string[];
   ingredients_used: string[];
   ingredients_missing: string[];
   instructions: string[];
@@ -72,3 +77,18 @@ export interface CreateShoppingItemDto {
   name: string;
   quantity?: string;
 }
+
+export interface UpdateFoodDto {
+  name?: string;
+  quantity?: string;
+  compartment?: CompartmentType;
+  container_tag?: string;
+  expiry_date?: string;
+  notes?: string | null;
+  photo_url?: string | null;
+  storage_path?: string | null;
+}
+
+export interface GoogleProfile { sub: string; name: string; email: string; picture?: string }
+export interface SessionPayload { room_code: string; nickname: string; exp: number; google_profile?: GoogleProfile }
+export interface AuthSession { room: Room; token: string; nickname: string; google_profile?: GoogleProfile }

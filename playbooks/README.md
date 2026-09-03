@@ -24,3 +24,4 @@ the next card touching that stack starts from the gotchas instead of rediscoveri
 |---|---|
 | [node-http-body.md](node-http-body.md) | Shared Node/serverless handlers, parsed request bodies and safe JSON errors |
 | [postgres-durable-repository.md](postgres-durable-repository.md) | Pooled Node PostgreSQL transactions, repeatable migration and room RLS verification |
+| [typescript-http-contract.md](typescript-http-contract.md) | Actual TypeScript client HTTP tests, generated spec drift, DTO normalization and durable shopping transfer retries |

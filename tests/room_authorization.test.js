@@ -226,8 +226,15 @@ test('served OpenAPI declares auth routes, protected operations and safe error/r
   for (const name of ['create-room', 'join-room', 'verify-token']) assert.ok(spec.paths[`/api/auth/${name}`]?.post);
   assert.equal(spec.components.securitySchemes.RoomBearer.scheme, 'bearer');
   for (const [path, operations] of Object.entries(spec.paths)) {
-    if (path === '/healthz' || path === '/readyz' || path === '/api/rooms' || path.startsWith('/api/auth/')) continue;
     for (const operation of Object.values(operations)) {
+      if (['/healthz','/readyz','/api/openapi.json','/api/config','/api/rooms'].includes(path) || path.startsWith('/api/auth/')) {
+        assert.deepEqual(operation.security, [], path);
+        continue;
+      }
+      if (path === '/api/cron/expiry') {
+        assert.deepEqual(operation.security, [{ CronBearer: [] }], path);
+        continue;
+      }
       assert.deepEqual(operation.security, [{ RoomBearer: [] }], path);
       assert.ok(operation.responses['401'] && operation.responses['403']);
     }

@@ -28,6 +28,18 @@ function normalizeShopping(row) {
   return row ? { ...row, id: String(row.id), created_at: iso(row.created_at) } : null;
 }
 
+function shoppingMovedFood(item, compartment, actor) {
+  const added = new Date();
+  const expiry = new Date(added.getTime() + 3 * 86400000);
+  return {
+    id: crypto.randomUUID(), room_code: item.room_code, name: item.name,
+    quantity: item.quantity, compartment, container_tag: '',
+    added_date: added.toISOString(), expiry_date: expiry.toISOString(),
+    days_remaining: 3, status: 'FRESH', photo_url: null, storage_path: null,
+    notes: null, created_by: actor, consumed_by: null, consumed_at: null,
+  };
+}
+
 function productionGuard() {
   if (process.env.NODE_ENV === 'production') {
     throw new HttpError(503, 'DATABASE_UNAVAILABLE', 'Database service is not configured.');
@@ -41,6 +53,7 @@ export function createMemoryRepository(seed = {}) {
   const shoppingItems = new Map((seed.shoppingItems || []).map(item => [item.id, structuredClone(item)]));
   const subscribers = new Map((seed.subscribers || []).map(item => [item.id, structuredClone(item)]));
   const limits = new Map();
+  const movedShopping = new Set();
   let serial = Promise.resolve();
   const locked = operation => {
     const next = serial.then(operation, operation);
@@ -100,6 +113,7 @@ export function createMemoryRepository(seed = {}) {
     async listFoods(code) { assertTest(); return [...foods.values()].filter(item => item.room_code === code).map(item => structuredClone(item)); },
     async createFood(food) { assertTest(); foods.set(food.id, structuredClone(food)); return structuredClone(food); },
     async getFood(id, code) { assertTest(); const item = foods.get(id); return item?.room_code === code ? structuredClone(item) : null; },
+    async updateFood(id, code, changes) { assertTest(); const item = foods.get(id); if (!item || item.room_code !== code) return null; Object.assign(item, structuredClone(changes)); return structuredClone(item); },
     async consumeFood(id, code, actor, addToShopping) {
       assertTest();
       return locked(() => {
@@ -119,7 +133,19 @@ export function createMemoryRepository(seed = {}) {
     async listShopping(code) { assertTest(); return [...shoppingItems.values()].filter(item => item.room_code === code).map(item => structuredClone(item)); },
     async createShopping(item) { assertTest(); shoppingItems.set(item.id, structuredClone(item)); return structuredClone(item); },
     async getShopping(id, code) { assertTest(); const item = shoppingItems.get(id); return item?.room_code === code ? structuredClone(item) : null; },
-    async toggleShopping(id, code, bought) { assertTest(); const item = shoppingItems.get(id); if (!item || item.room_code !== code) return null; item.is_bought = bought; return structuredClone(item); },
+    async toggleShopping(id, code, bought, moveToFridge, compartment, actor) {
+      assertTest();
+      return locked(() => {
+        const item = shoppingItems.get(id); if (!item || item.room_code !== code) return null;
+        item.is_bought = bought;
+        const moveKey = `${code}:shopping-move:${id}`;
+        if (bought && moveToFridge && !movedShopping.has(moveKey)) {
+          const food = shoppingMovedFood(item, compartment, actor);
+          foods.set(food.id, food); movedShopping.add(moveKey);
+        }
+        return structuredClone(item);
+      });
+    },
     async deleteShopping(id, code) { assertTest(); const item = shoppingItems.get(id); return Boolean(item?.room_code === code && shoppingItems.delete(id)); },
     async saveSubscription(code, subscription, deviceName) {
       assertTest();
@@ -224,6 +250,15 @@ export function createPostgresRepository({ connectionString = process.env.DATABA
       return normalizeFood(row);
     },
     async getFood(id, code) { if (!isUuid(id)) return null; return normalizeFood((await query('select * from public.foods where id=$1 and room_code=$2', [id,code])).rows[0]); },
+    async updateFood(id, code, changes) {
+      if (!isUuid(id)) return null;
+      const allowed = ['name','quantity','compartment','container_tag','expiry_date','notes','photo_url','storage_path'];
+      const fields = Object.keys(changes).filter(field => allowed.includes(field));
+      if (!fields.length) return this.getFood(id, code);
+      const assignments = fields.map((field,index) => `${field}=$${index+3}`).join(',');
+      const row = (await query(`update public.foods set ${assignments} where id=$1 and room_code=$2 returning *`, [id,code,...fields.map(field => changes[field])])).rows[0];
+      return normalizeFood(row);
+    },
     async consumeFood(id, code, actor, addToShopping) {
       if (!isUuid(id)) return null;
       return transaction(pool, async client => {
@@ -241,7 +276,26 @@ export function createPostgresRepository({ connectionString = process.env.DATABA
     async listShopping(code) { return (await query('select * from public.shopping_items where room_code=$1 order by created_at,id', [code])).rows.map(normalizeShopping); },
     async createShopping(item) { return normalizeShopping((await query(`insert into public.shopping_items(id,room_code,name,quantity,is_bought,created_at) values($1,$2,$3,$4,$5,$6) returning *`, [item.id,item.room_code,item.name,item.quantity,item.is_bought,item.created_at])).rows[0]); },
     async getShopping(id, code) { if (!isUuid(id)) return null; return normalizeShopping((await query('select * from public.shopping_items where id=$1 and room_code=$2', [id,code])).rows[0]); },
-    async toggleShopping(id, code, bought) { if (!isUuid(id)) return null; return normalizeShopping((await query('update public.shopping_items set is_bought=$3 where id=$1 and room_code=$2 returning *', [id,code,bought])).rows[0]); },
+    async toggleShopping(id, code, bought, moveToFridge, compartment, actor) {
+      if (!isUuid(id)) return null;
+      return transaction(pool, async client => {
+        const item = (await client.query('select * from public.shopping_items where id=$1 and room_code=$2 for update', [id,code])).rows[0];
+        if (!item) return null;
+        const saved = (await client.query('update public.shopping_items set is_bought=$3 where id=$1 and room_code=$2 returning *', [id,code,bought])).rows[0];
+        if (bought && moveToFridge) {
+          const operation = 'shopping-move', key = id;
+          const prior = (await client.query('select 1 from sharefridge_private.idempotency_keys where room_code=$1 and operation=$2 and key=$3', [code,operation,key])).rows[0];
+          if (!prior) {
+            const food = shoppingMovedFood(item, compartment, actor);
+            await client.query(`insert into public.foods(id,room_code,name,quantity,compartment,container_tag,added_date,expiry_date,status,photo_url,storage_path,notes,created_by,consumed_by,consumed_at)
+              values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+            [food.id,food.room_code,food.name,food.quantity,food.compartment,food.container_tag,food.added_date,food.expiry_date,food.status,food.photo_url,food.storage_path,food.notes,food.created_by,food.consumed_by,food.consumed_at]);
+            await client.query(`insert into sharefridge_private.idempotency_keys(room_code,operation,key,request_hash,response) values($1,$2,$3,$4,$5)`, [code,operation,key,crypto.createHash('sha256').update(`${id}:move`).digest('hex'),JSON.stringify({ food_id: food.id })]);
+          }
+        }
+        return normalizeShopping(saved);
+      });
+    },
     async deleteShopping(id, code) { if (!isUuid(id)) return false; return (await query('delete from public.shopping_items where id=$1 and room_code=$2', [id,code])).rowCount > 0; },
     async saveSubscription(code, subscription, deviceName) {
       return transaction(pool, async client => {

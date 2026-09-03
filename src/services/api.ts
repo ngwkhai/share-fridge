@@ -1,4 +1,4 @@
-import { FoodItem, CreateFoodDto, ParsedFoodItem, RecipeSuggestion, ShoppingItem, CreateShoppingItemDto, Room, RoomDetail } from '../types';
+import type { FoodItem, CreateFoodDto, UpdateFoodDto, ParsedFoodItem, RecipeSuggestion, ShoppingItem, CreateShoppingItemDto, Room, RoomDetail, AuthSession, SessionPayload, CompartmentType } from '../types';
 
 export interface SessionCache {
   code: string;
@@ -81,231 +81,129 @@ export const foodCache = {
   }
 };
 
-const getToken = () => localStorage.getItem('sharefridge_session_token') || '';
+/** Failures remain failures, with a stable machine code and the actual HTTP status. */
+export class ApiError extends Error {
+  constructor(message: string, public readonly status: number, public readonly code: string, public readonly path: string) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+type Guard<T> = (value: unknown) => value is T;
+const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
+const string = (value: unknown): value is string => typeof value === 'string';
+const nonempty = (value: unknown): value is string => string(value) && value.trim().length > 0;
+const integer = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value);
+const date = (value: unknown): value is string => string(value) && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/.test(value) && Number.isFinite(Date.parse(value));
+const roomCode = (value: unknown): value is string => string(value) && /^\d{6}$/.test(value);
+const compartment = (value: unknown): value is CompartmentType => string(value) && ['FREEZER','FRIDGE_TOP','FRIDGE_BOTTOM','CRISPER','DOOR'].includes(value);
+const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every(string);
+const optional = (value: unknown, guard: (x: unknown) => boolean, nullable = false) => value === undefined || (nullable && value === null) || guard(value);
+const room: Guard<Room> = (x): x is Room => object(x) && nonempty(x.id) && roomCode(x.code) && nonempty(x.name) && date(x.created_at);
+const roomDetail: Guard<RoomDetail> = (x): x is RoomDetail => room(x) && object(x) && integer(x.active_food_count) && x.active_food_count >= 0 && integer(x.urgent_food_count) && x.urgent_food_count >= 0;
+const profile = (x: unknown) => object(x) && nonempty(x.sub) && nonempty(x.name) && nonempty(x.email) && optional(x.picture, string);
+const authSession: Guard<AuthSession> = (x): x is AuthSession => object(x) && room(x.room) && nonempty(x.token) && nonempty(x.nickname) && optional(x.google_profile, profile);
+const sessionPayload: Guard<SessionPayload> = (x): x is SessionPayload => object(x) && roomCode(x.room_code) && nonempty(x.nickname) && integer(x.exp) && optional(x.google_profile, profile);
+const food: Guard<FoodItem> = (x): x is FoodItem => object(x) && nonempty(x.id) && roomCode(x.room_code) && nonempty(x.name) && compartment(x.compartment) && date(x.added_date) && date(x.expiry_date) && integer(x.days_remaining) && string(x.status) && ['FRESH','COOK_SOON','EXPIRED','CONSUMED'].includes(x.status) && ['quantity','container_tag','created_by'].every(key => optional(x[key], string)) && ['photo_url','storage_path','notes','consumed_by'].every(key => optional(x[key], string, true)) && optional(x.consumed_at, date, true);
+const shopping: Guard<ShoppingItem> = (x): x is ShoppingItem => object(x) && nonempty(x.id) && roomCode(x.room_code) && nonempty(x.name) && optional(x.quantity, string) && typeof x.is_bought === 'boolean' && date(x.created_at);
+const list = <T>(guard: Guard<T>): Guard<{ items: T[]; total: number }> => (x): x is { items: T[]; total: number } => object(x) && Array.isArray(x.items) && x.items.every(guard) && integer(x.total) && x.total === x.items.length;
+const parsed: Guard<ParsedFoodItem> = (x): x is ParsedFoodItem => object(x) && nonempty(x.name) && compartment(x.compartment) && integer(x.shelf_life_days) && x.shelf_life_days >= 0 && x.shelf_life_days <= 365 && optional(x.quantity, string) && optional(x.container_tag, string);
+const recipe: Guard<RecipeSuggestion> = (x): x is RecipeSuggestion => object(x) && nonempty(x.id) && nonempty(x.title) && integer(x.cook_time_minutes) && x.cook_time_minutes > 0 && ['food_ids','ingredients_used','ingredients_missing','instructions'].every(key => strings(x[key]));
+const source = (x: unknown) => x === 'gemini-2.5-flash' || x === 'heuristic';
+const deleted = (id: string): Guard<{ success: true; deleted_id: string }> => (x): x is { success: true; deleted_id: string } => object(x) && x.success === true && x.deleted_id === id;
+
+const getToken = () => {
+  try { return localStorage.getItem('sharefridge_session_token') || ''; }
+  catch { return ''; }
+};
+
+async function request<T>(path: string, validate: Guard<T>, options: { method?: string; body?: unknown; public?: boolean } = {}): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method: options.method || 'GET',
+      headers: { ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(options.public ? {} : { Authorization: `Bearer ${getToken()}` }) },
+      body: options.body === undefined ? undefined : JSON.stringify(options.body)
+    });
+  } catch {
+    throw new ApiError('Không thể kết nối máy chủ. Vui lòng thử lại.', 0, 'NETWORK_ERROR', path);
+  }
+  let data: unknown;
+  try { data = await response.json(); }
+  catch {
+    throw new ApiError(response.ok ? 'Phản hồi máy chủ không hợp lệ.' : 'Yêu cầu không thành công.', response.status, response.ok ? 'INVALID_RESPONSE' : 'HTTP_ERROR', path);
+  }
+  if (!response.ok) {
+    if (object(data) && nonempty(data.error) && nonempty(data.code)) throw new ApiError(data.error, response.status, data.code, path);
+    throw new ApiError('Yêu cầu không thành công.', response.status, 'HTTP_ERROR', path);
+  }
+  if (!validate(data)) throw new ApiError('Phản hồi máy chủ không đúng định dạng.', response.status, 'INVALID_RESPONSE', path);
+  return data;
+}
 
 export const api = {
   sessionCache,
   foodCache,
-
-  async getHealth(): Promise<{ status: string; version: string; timestamp: string }> {
-    const res = await fetch('/healthz');
-    return res.json();
+  async getHealth() {
+    return request('/healthz', (x): x is { status: 'ok'; version: string; timestamp: string } => object(x) && x.status === 'ok' && nonempty(x.version) && date(x.timestamp), { public: true });
   },
-
-  async createRoomWithPasscode(code?: string, name?: string, passcode?: string, nickname?: string): Promise<{ room: Room; token: string; nickname: string }> {
-    const res = await fetch('/api/auth/create-room', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, name, passcode, nickname })
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Lỗi tạo phòng mới');
-    }
-    const data = await res.json();
-    if (data.token) {
-      sessionCache.save({
-        code: data.room.code,
-        name: data.room.name,
-        passcode: passcode || '1234',
-        nickname: nickname || data.nickname || 'Bạn cùng phòng',
-        token: data.token,
-        cached_at: Date.now()
-      });
-    }
+  async createRoomWithPasscode(code?: string, name?: string, passcode?: string, nickname?: string): Promise<AuthSession> {
+    const data = await request('/api/auth/create-room', authSession, { method: 'POST', public: true, body: { code, name, passcode, nickname } });
+    sessionCache.save({ code: data.room.code, name: data.room.name, passcode: passcode || '', nickname: data.nickname, token: data.token, cached_at: Date.now() });
     return data;
   },
-
-  async joinRoomWithPasscode(code: string, passcode: string, nickname?: string): Promise<{ room: Room; token: string; nickname: string }> {
-    const res = await fetch('/api/auth/join-room', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, passcode, nickname })
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Lỗi đăng nhập phòng');
-    }
-    const data = await res.json();
-    if (data.token) {
-      sessionCache.save({
-        code: data.room.code,
-        name: data.room.name,
-        passcode,
-        nickname: nickname || data.nickname || 'Bạn cùng phòng',
-        token: data.token,
-        cached_at: Date.now()
-      });
-    }
+  async joinRoomWithPasscode(code: string, passcode: string, nickname?: string): Promise<AuthSession> {
+    const data = await request('/api/auth/join-room', authSession, { method: 'POST', public: true, body: { code, passcode, nickname } });
+    sessionCache.save({ code: data.room.code, name: data.room.name, passcode, nickname: data.nickname, token: data.token, cached_at: Date.now() });
     return data;
   },
-
-  async verifyToken(token?: string): Promise<{ valid: boolean; payload?: any; room?: Room }> {
-    const actualToken = token || getToken();
-    if (!actualToken) return { valid: false };
-    const res = await fetch('/api/auth/verify-token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: actualToken })
-    });
-    return res.json();
+  async verifyToken(token?: string) {
+    return request('/api/auth/verify-token', (x): x is { valid: true; payload: SessionPayload; room: Room } => object(x) && x.valid === true && sessionPayload(x.payload) && room(x.room), { method: 'POST', public: true, body: { token: token || getToken() } });
   },
-
-  async createRoom(code?: string, name?: string): Promise<Room> {
-    const res = await fetch('/api/rooms', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, name })
-    });
-    return res.json();
+  async createRoom(code?: string, name?: string, passcode?: string): Promise<Room> {
+    return request('/api/rooms', room, { method: 'POST', public: true, body: { code, name, passcode } });
   },
-
   async getRoom(code: string): Promise<RoomDetail> {
-    const res = await fetch(`/api/rooms/${code}`, {
-      headers: { 'Authorization': `Bearer ${getToken()}` }
-    });
-    if (!res.ok) {
-      // Auto-recreate in serverless environments if session cache is present
-      const cache = sessionCache.get();
-      if (cache && cache.code === code) {
-        try {
-          const rec = await this.createRoomWithPasscode(cache.code, cache.name, cache.passcode, cache.nickname);
-          return {
-            id: rec.room.id,
-            code: rec.room.code,
-            name: rec.room.name,
-            created_at: rec.room.created_at,
-            active_food_count: 0,
-            urgent_food_count: 0
-          };
-        } catch {}
-      }
-      throw new Error('Không tìm thấy phòng');
-    }
-    return res.json();
+    return request(`/api/rooms/${encodeURIComponent(code)}`, roomDetail);
   },
-
-  async getFoods(roomCode: string, status?: 'active' | 'consumed'): Promise<{ items: FoodItem[]; total: number }> {
-    const url = `/api/foods?room_code=${encodeURIComponent(roomCode)}${status ? `&status=${status}` : ''}`;
-    const res = await fetch(url, {
-      headers: { 'Authorization': `Bearer ${getToken()}` }
-    });
-    if (!res.ok) return { items: [], total: 0 };
-    return res.json();
+  async getFoods(code: string, status?: 'active' | 'consumed') {
+    return request(`/api/foods?room_code=${encodeURIComponent(code)}${status ? `&status=${encodeURIComponent(status)}` : ''}`, list(food));
   },
-
   async addFood(dto: CreateFoodDto): Promise<FoodItem> {
-    const res = await fetch('/api/foods', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${getToken()}`
-      },
-      body: JSON.stringify(dto)
-    });
-    if (!res.ok) throw new Error('Không thể thêm thực phẩm');
-    return res.json();
+    return request('/api/foods', food, { method: 'POST', body: dto });
   },
-
-  async consumeFood(id: string, notes?: string, autoShopping = true): Promise<FoodItem> {
-    const res = await fetch(`/api/foods/${id}/consume`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${getToken()}`
-      },
-      body: JSON.stringify({ notes, auto_shopping: autoShopping })
-    });
-    return res.json();
+  async updateFood(id: string, dto: UpdateFoodDto): Promise<FoodItem> {
+    return request(`/api/foods/${encodeURIComponent(id)}`, food, { method: 'PATCH', body: dto });
   },
-
+  // Retain the existing third positional option; notes were never a consume field.
+  async consumeFood(id: string, _notes?: string, autoShopping = true): Promise<FoodItem> {
+    return request(`/api/foods/${encodeURIComponent(id)}/consume`, food, { method: 'PATCH', body: { add_to_shopping_list: autoShopping } });
+  },
   async deleteFood(id: string): Promise<void> {
-    await fetch(`/api/foods/${id}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${getToken()}` }
-    });
+    await request(`/api/foods/${encodeURIComponent(id)}`, deleted(id), { method: 'DELETE' });
   },
-
-  async getShoppingItems(roomCode: string): Promise<{ items: ShoppingItem[]; total: number }> {
-    const res = await fetch(`/api/shopping-items?room_code=${encodeURIComponent(roomCode)}`, {
-      headers: { 'Authorization': `Bearer ${getToken()}` }
-    });
-    if (!res.ok) return { items: [], total: 0 };
-    return res.json();
+  async getShoppingItems(code: string) {
+    return request(`/api/shopping-items?room_code=${encodeURIComponent(code)}`, list(shopping));
   },
-
   async addShoppingItem(dto: CreateShoppingItemDto): Promise<ShoppingItem> {
-    const res = await fetch('/api/shopping-items', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${getToken()}`
-      },
-      body: JSON.stringify(dto)
-    });
-    return res.json();
+    return request('/api/shopping-items', shopping, { method: 'POST', body: dto });
   },
-
-  async toggleShoppingItem(id: string, isBought: boolean): Promise<ShoppingItem> {
-    const res = await fetch(`/api/shopping-items/${id}`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${getToken()}`
-      },
-      body: JSON.stringify({ is_bought: isBought })
-    });
-    return res.json();
+  async toggleShoppingItem(id: string, isBought: boolean, moveToFridge = false, targetCompartment?: CompartmentType): Promise<ShoppingItem> {
+    return request(`/api/shopping-items/${encodeURIComponent(id)}/toggle`, shopping, { method: 'PATCH', body: { is_bought: isBought, move_to_fridge: moveToFridge, compartment: targetCompartment } });
   },
-
   async deleteShoppingItem(id: string): Promise<void> {
-    await fetch(`/api/shopping-items/${id}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${getToken()}` }
-    });
+    await request(`/api/shopping-items/${encodeURIComponent(id)}`, deleted(id), { method: 'DELETE' });
   },
-
-  async parseVoice(transcript: string): Promise<{ parsed: ParsedFoodItem; confidence: number; source: string }> {
-    const res = await fetch('/api/ai/parse-voice', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${getToken()}`
-      },
-      body: JSON.stringify({ transcript })
-    });
-    return res.json();
+  async parseVoice(transcript: string) {
+    return request('/api/ai/parse-voice', (x): x is { parsed: ParsedFoodItem; confidence: number; source: string } => object(x) && parsed(x.parsed) && typeof x.confidence === 'number' && x.confidence >= 0 && x.confidence <= 1 && source(x.source), { method: 'POST', body: { transcript } });
   },
-
-  async suggestRecipes(roomCode: string): Promise<{ suggestions: RecipeSuggestion[]; source: string }> {
-    const res = await fetch('/api/ai/suggest-recipes', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${getToken()}`
-      },
-      body: JSON.stringify({ room_code: roomCode })
-    });
-    return res.json();
+  async suggestRecipes(code: string, preference?: string) {
+    return request('/api/ai/suggest-recipes', (x): x is { suggestions: RecipeSuggestion[]; generated_at: string; source: string } => object(x) && Array.isArray(x.suggestions) && x.suggestions.every(recipe) && date(x.generated_at) && source(x.source), { method: 'POST', body: { room_code: code, preference } });
   },
-
   async subscribePush(subscription: PushSubscriptionJSON, roomCode: string, deviceName?: string) {
-    const res = await fetch('/api/push/subscribe', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${getToken()}`
-      },
-      body: JSON.stringify({
-        room_code: roomCode,
-        subscription,
-        device_name: deviceName || (navigator.userAgent.includes('iPhone') ? 'iPhone' : 'Android')
-      })
-    });
-    return res.json();
+    return request('/api/notifications/subscribe', (x): x is { success: true; subscriber_id: string } => object(x) && x.success === true && nonempty(x.subscriber_id), { method: 'POST', body: { room_code: roomCode, subscription, device_name: deviceName } });
   },
-
-  async subscribeNotifications(roomCode: string, subscription: any, deviceName?: string) {
+  async subscribeNotifications(roomCode: string, subscription: PushSubscriptionJSON, deviceName?: string) {
     return this.subscribePush(subscription, roomCode, deviceName);
   }
 };

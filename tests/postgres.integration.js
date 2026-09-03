@@ -18,6 +18,8 @@ const ownedCodes = [];
 const workers = [];
 let first, second, firstCode, secondCode, legacyCode, legacyRoom, food, shop, subscriberId;
 const bucket = value => crypto.createHash('sha256').update(value).digest('hex');
+// Per-run proxy fixture identity, shared across both workers and never a real caller.
+const fixtureIp = `2001:db8:${crypto.randomBytes(2).toString('hex')}:${crypto.randomBytes(2).toString('hex')}::19`;
 
 async function code() {
   for (let n=0;n<50;n++) {
@@ -30,7 +32,7 @@ async function code() {
 async function startWorker() {
   const child = spawn(process.execPath, ['tests/postgres-worker.js'], {
     cwd: process.cwd(), stdio: ['ignore','pipe','pipe'],
-    env: { ...process.env, NODE_ENV:'production', DATABASE_URL:process.env.TEST_DATABASE_URL, SESSION_SECRET:sessionSecret, GEMINI_API_KEY:'' },
+    env: { ...process.env, VERCEL:'1', NODE_ENV:'production', DATABASE_URL:process.env.TEST_DATABASE_URL, SESSION_SECRET:sessionSecret, GEMINI_API_KEY:'' },
   });
   const instance = { child, url: null, stopped: false };
   workers.push(instance);
@@ -60,7 +62,7 @@ async function stopWorker(instance) {
   });
 }
 async function call(worker,path,{method='GET',token,body}={}) {
-  const response=await fetch(`${worker.url}${path}`,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},body:body===undefined?undefined:JSON.stringify(body)});
+  const response=await fetch(`${worker.url}${path}`,{method,headers:{'Content-Type':'application/json','X-Forwarded-For':fixtureIp,...(token?{Authorization:`Bearer ${token}`}:{})},body:body===undefined?undefined:JSON.stringify(body)});
   return { status:response.status, data:await response.json() };
 }
 
@@ -85,6 +87,7 @@ test.after(async () => {
   // Cleanup is limited to random test-owned room IDs and the test-owned role.
   if (ownedCodes.length) await pool.query('delete from public.rooms where code=any($1::text[])',[ownedCodes]);
   await pool.query(`drop owned by ${roleName}; drop role ${roleName};`);
+  await pool.query('delete from sharefridge_private.rate_limits where bucket=any($1::text[])', [[bucket(`create:${fixtureIp}`),bucket(`join-ip:${fixtureIp}`),...ownedCodes.map(code=>bucket(`join-room:${code}`))]]);
   await pool.end();
 });
 
@@ -165,7 +168,7 @@ test('shopping insert failure rolls back food consumption in the same database t
 });
 
 test('failed sign-in limiter is shared and race-safe across processes', async () => {
-  const keys=[bucket('join-ip:127.0.0.1'),bucket(`join-room:${secondCode}`)];
+  const keys=[bucket(`join-ip:${fixtureIp}`),bucket(`join-room:${secondCode}`)];
   for(const key of keys) await repository.clearRateLimit(key);
   const results=await Promise.all(Array.from({length:10},(_,i)=>call(i%2?first:second,'/api/auth/join-room',{method:'POST',body:{code:secondCode,passcode:'0000'}})));
   assert.equal(results.filter(result=>result.status===401).length,5);

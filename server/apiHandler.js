@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { foodDto, subscriptionDto, text, boolean, compartment, fields, invalid } from './validation.js';
 import crypto from 'node:crypto';
 import { HttpError, readJsonBody, sendError } from './http.js';
 import path from 'path';
@@ -19,6 +20,19 @@ function calculateStatusAndDays(expiryDateStr) {
   if (days <= 0) status = 'EXPIRED';
   else if (days <= 2) status = 'COOK_SOON';
   return { days_remaining: days, status };
+}
+
+
+function publicFood(food) {
+  const computed = calculateStatusAndDays(food.expiry_date);
+  const result = { ...food, ...computed, status: food.status === 'CONSUMED' ? 'CONSUMED' : computed.status };
+  for (const field of ['quantity','container_tag','created_by']) if (result[field] === null) delete result[field];
+  return result;
+}
+function publicShopping(item) {
+  const result = { ...item };
+  if (result.quantity === null) delete result.quantity;
+  return result;
 }
 
 function publicRoom(room) {
@@ -86,6 +100,12 @@ async function dispatchApiRequest(req, res, repository) {
     res.end(JSON.stringify({ status: ready ? 'ok' : 'unavailable', database: kind }));
     return true;
   }
+  if (pathname === '/api/config' && method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ google_client_id: null, capabilities: { google: false, push: false, photos: false, realtime: false } }));
+    return true;
+  }
+  if ((pathname === '/api/auth/google' && method === 'POST') || (pathname === '/api/cron/expiry' && method === 'GET')) throw new HttpError(503, 'SERVICE_UNAVAILABLE', 'This integration is not available yet.');
   const needsDatabase = pathname !== '/healthz' && pathname !== '/api/openapi.json' && pathname.startsWith('/api/');
   let db = repository;
   const resolveDb = () => db ??= defaultRepository ??= createConfiguredRepository();
@@ -205,14 +225,10 @@ async function dispatchApiRequest(req, res, repository) {
   if (pathname === '/api/foods' && method === 'GET') {
     const room_code = assertRoomAccess(url.searchParams.get('room_code'), session);
     const statusFilter = url.searchParams.get('status');
+    if (statusFilter !== null && !['active','consumed'].includes(statusFilter)) invalid('status must be active or consumed.');
     let items = await db.listFoods(room_code);
     
-    // Recalculate dynamic days remaining
-    items = items.map(f => {
-      if (f.status === 'CONSUMED') return f;
-      const { days_remaining, status } = calculateStatusAndDays(f.expiry_date);
-      return { ...f, days_remaining, status };
-    });
+    items = items.map(publicFood);
 
     if (statusFilter === 'active') {
       items = items.filter(f => f.status !== 'CONSUMED');
@@ -228,7 +244,8 @@ async function dispatchApiRequest(req, res, repository) {
   if (pathname === '/api/foods' && method === 'POST') {
     const data = await parseJsonBody();
     const id = crypto.randomUUID();
-    const shelfDays = Number(data.shelf_life_days) || 3;
+    const validated = foodDto(data);
+    const shelfDays = validated.shelf_life_days;
     const addedDate = new Date();
     const expiryDate = new Date(addedDate.getTime() + shelfDays * 24 * 60 * 60 * 1000);
     const { days_remaining, status } = calculateStatusAndDays(expiryDate.toISOString());
@@ -236,16 +253,17 @@ async function dispatchApiRequest(req, res, repository) {
     const food = {
       id,
       room_code: assertRoomAccess(data.room_code, session),
-      name: data.name,
-      quantity: data.quantity || '1 phần',
-      compartment: data.compartment || 'FRIDGE_TOP',
-      container_tag: data.container_tag || '',
+      name: validated.name,
+      quantity: validated.quantity ?? '1 phần',
+      compartment: validated.compartment,
+      container_tag: validated.container_tag ?? '',
       added_date: addedDate.toISOString(),
       expiry_date: expiryDate.toISOString(),
       days_remaining,
       status,
-      photo_url: data.photo_url || null,
-      notes: data.notes || null,
+      photo_url: validated.photo_url ?? null,
+      storage_path: validated.storage_path ?? null,
+      notes: validated.notes ?? null,
       created_by: session.nickname
     };
 
@@ -259,11 +277,21 @@ async function dispatchApiRequest(req, res, repository) {
   if (foodConsumeMatch && method === 'PATCH') {
     const id = foodConsumeMatch[1];
     const data = await parseJsonBody();
-    const food = requireItem(await db.consumeFood(id, session.room_code, session.nickname, Boolean(data.add_to_shopping_list)));
-    food.days_remaining = calculateStatusAndDays(food.expiry_date).days_remaining;
+    fields(data, ['add_to_shopping_list','consumed_by']);
+    if (data.consumed_by !== undefined && typeof data.consumed_by !== 'string') invalid('consumed_by must be a string.');
+    const food = publicFood(requireItem(await db.consumeFood(id, session.room_code, session.nickname, boolean(data.add_to_shopping_list, 'add_to_shopping_list', false))));
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(food));
+    return true;
+  }
+
+  const foodEditMatch = pathname.match(/^\/api\/foods\/([a-zA-Z0-9_-]+)$/);
+  if (foodEditMatch && method === 'PATCH') {
+    const data = foodDto(await parseJsonBody(), true);
+    const updated = publicFood(requireItem(await db.updateFood(foodEditMatch[1], session.room_code, data)));
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(updated));
     return true;
   }
 
@@ -279,7 +307,9 @@ async function dispatchApiRequest(req, res, repository) {
   // 5. AI Parse Voice
   if (pathname === '/api/ai/parse-voice' && method === 'POST') {
     const customApiKey = req.headers['x-gemini-key'] || '';
-    const { transcript } = await parseJsonBody();
+    const data = await parseJsonBody();
+    fields(data, ['transcript']);
+    const transcript = text(data.transcript, 'transcript', 2000);
     const result = await parseVoiceWithGemini(transcript, customApiKey);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(result));
@@ -289,7 +319,10 @@ async function dispatchApiRequest(req, res, repository) {
   // 6. AI Suggest Recipes
   if (pathname === '/api/ai/suggest-recipes' && method === 'POST') {
     const customApiKey = req.headers['x-gemini-key'] || '';
-    const { room_code, preference } = await parseJsonBody();
+    const data = await parseJsonBody();
+    fields(data, ['room_code','preference']);
+    const room_code = data.room_code;
+    const preference = text(data.preference, 'preference', 2000, { optional: true, empty: true });
     assertRoomAccess(room_code, session);
     const availableFoods = (await db.listFoods(session.room_code)).filter(f => f.status !== 'CONSUMED');
     
@@ -311,20 +344,21 @@ async function dispatchApiRequest(req, res, repository) {
   // 7. Shopping items
   if (pathname === '/api/shopping-items' && method === 'GET') {
     const room_code = assertRoomAccess(url.searchParams.get('room_code'), session);
-    const items = await db.listShopping(room_code);
+    const items = (await db.listShopping(room_code)).map(publicShopping);
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ items }));
+    res.end(JSON.stringify({ items, total: items.length }));
     return true;
   }
 
   if (pathname === '/api/shopping-items' && method === 'POST') {
     const data = await parseJsonBody();
+    fields(data, ['room_code','name','quantity']);
     const id = crypto.randomUUID();
     const item = {
       id,
       room_code: assertRoomAccess(data.room_code, session),
-      name: data.name,
-      quantity: data.quantity || '',
+      name: text(data.name, 'name', 200),
+      quantity: text(data.quantity, 'quantity', 200, { optional: true, empty: true }) ?? '',
       is_bought: false,
       created_at: new Date().toISOString()
     };
@@ -338,7 +372,12 @@ async function dispatchApiRequest(req, res, repository) {
   if (shopToggleMatch && method === 'PATCH') {
     const id = shopToggleMatch[1];
     const data = await parseJsonBody();
-    const item = requireItem(await db.toggleShopping(id, session.room_code, data.is_bought));
+    fields(data, ['is_bought','move_to_fridge','compartment']);
+    const bought = boolean(data.is_bought, 'is_bought');
+    const move = boolean(data.move_to_fridge, 'move_to_fridge', false);
+    if (move && !bought) invalid('Only bought items can move to the fridge.');
+    const target = data.compartment === undefined ? 'FRIDGE_TOP' : compartment(data.compartment);
+    const item = publicShopping(requireItem(await db.toggleShopping(id, session.room_code, bought, move, target, session.nickname)));
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(item));
     return true;
@@ -349,7 +388,7 @@ async function dispatchApiRequest(req, res, repository) {
     const id = shopDeleteMatch[1];
     requireItem(await db.deleteShopping(id, session.room_code));
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ success: true }));
+    res.end(JSON.stringify({ success: true, deleted_id: id }));
     return true;
   }
 
@@ -357,12 +396,15 @@ async function dispatchApiRequest(req, res, repository) {
   if (pathname === '/api/notifications/subscribe' && method === 'POST') {
     const data = await parseJsonBody();
     assertRoomAccess(data.room_code, session);
-    const subscription = await db.saveSubscription(session.room_code, data.subscription, data.device_name);
+    const validated = subscriptionDto(data);
+    const subscription = await db.saveSubscription(session.room_code, validated.subscription, validated.device_name);
     const subscriber_id = subscription.id;
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true, subscriber_id }));
     return true;
   }
+
+  if ((pathname === '/api/foods/consume-batch' && method === 'POST') || (pathname === '/api/realtime-token' && method === 'GET') || (pathname === '/api/notifications/config' && method === 'GET') || (pathname === '/api/notifications/subscribe' && method === 'DELETE') || (pathname === '/api/photos' && ['POST','DELETE'].includes(method))) throw new HttpError(503, 'SERVICE_UNAVAILABLE', 'This integration is not available yet.');
 
   return false;
 }
