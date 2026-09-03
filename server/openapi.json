@@ -2082,8 +2082,7 @@
               }
             }
           }
-        },
-        "x-availability": "C023: atomic batch integration returns 503 until implemented."
+        }
       }
     },
     "/api/ai/parse-voice": {
@@ -2351,8 +2350,7 @@
               }
             }
           }
-        },
-        "x-availability": "C023 owns recipe food_ids/source normalization; consumers reject incomplete responses."
+        }
       }
     },
     "/api/shopping-items": {
@@ -4217,6 +4215,7 @@
               "type": "string"
             },
             "minItems": 1,
+            "maxItems": 50,
             "uniqueItems": true
           },
           "idempotency_key": {
@@ -4227,7 +4226,8 @@
           "add_to_shopping_list": {
             "type": "boolean"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "ParsedFoodItem": {
         "type": "object",

@@ -1,0 +1,18 @@
+{
+  "food": [
+    {
+      "id": "e3270d47-b0eb-4579-bcae-826fcdcaed63",
+      "name": "thịt ba chỉ",
+      "status": "CONSUMED",
+      "consumed_by": "Kiểm thử C023",
+      "consumed_at": "2026-09-03T14:28:47.298Z"
+    }
+  ],
+  "replay": [
+    {
+      "operation": "consume-batch",
+      "food_id": "e3270d47-b0eb-4579-bcae-826fcdcaed63",
+      "consumed_at": "2026-09-03T14:28:47.298Z"
+    }
+  ]
+}

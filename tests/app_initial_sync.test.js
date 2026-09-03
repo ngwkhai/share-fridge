@@ -196,3 +196,90 @@ test('actual Google button ignores cancelled credentials and exposes verificatio
     assert.equal(successes.length,0);
   } finally {if(renderer)await act(async()=>renderer.unmount());globalThis.fetch=oldFetch;if(oldWindow===undefined)delete globalThis.window;else globalThis.window=oldWindow;}
 });
+
+test('actual App cooks recipe exact IDs once, disables competing actions, shows missing ingredients and retries the same key', async () => {
+  const { api } = await import(compile(fileURLToPath(new URL('../src/services/api.ts', import.meta.url))));
+  const oldFetch=globalThis.fetch,oldStorage=globalThis.localStorage;
+  const store=new Map();globalThis.localStorage={getItem:key=>store.get(key)||null,setItem:(key,value)=>store.set(key,value),removeItem:key=>store.delete(key)};
+  api.sessionCache.save(session);
+  const lots=['lot-one','lot-two','lot-three'].map(id=>({id,room_code:room.code,name:'Trứng gà',compartment:'DOOR',added_date:new Date().toISOString(),expiry_date:new Date(Date.now()+86400000).toISOString(),status:'COOK_SOON',days_remaining:1}));
+  const selected={id:'recipe-picked',title:'Trứng chiên',cook_time_minutes:10,food_ids:['lot-two','lot-three'],ingredients_used:['Trứng gà','Trứng gà'],ingredients_missing:['Dầu ăn'],instructions:['Chiên đến khi chín.']};
+  const choices=[selected,{...selected,id:'recipe-other',food_ids:['lot-one'],ingredients_used:['Trứng gà']}];
+  let snapshot={...empty(),foods:lots},pending=deferred();const sent=[];
+  globalThis.fetch=async(path,options)=>{
+    if(path==='/api/ai/suggest-recipes')return new Response(JSON.stringify({suggestions:choices,source:'heuristic',generated_at:new Date().toISOString()}));
+    sent.push({path,method:options.method,body:JSON.parse(options.body)});return pending.promise;
+  };
+  const controller=createRoomSyncController({read:async()=>snapshot,cached:()=>snapshot,save:()=>{},invalidate:()=>{},online:()=>true});controller.activate(session);setController(controller);
+  let renderer;
+  try {
+    await act(async()=>{renderer=create(React.createElement(App));await controller.refresh();});
+    await act(async()=>button(renderer,'Nấu gì?').props.onClick());
+    assert.match(renderedText(renderer),/Cần chuẩn bị thêm/);assert.match(renderedText(renderer),/Dầu ăn/);assert.match(renderedText(renderer),/Gợi ý cơ bản/);
+    await act(async()=>button(renderer,'Đã nấu món này').props.onClick());
+    assert.equal(sent.length,1);assert.equal(sent[0].path,'/api/foods/consume-batch');assert.equal(sent[0].method,'POST');assert.deepEqual(sent[0].body.food_ids,['lot-two','lot-three']);
+    assert.ok(renderer.root.findAllByType('button').filter(node=>/Đang cập nhật|Đã nấu món này|Lấy gợi ý mới/.test(text(node.children))).every(node=>node.props.disabled));
+    await act(async()=>pending.resolve(new Response(JSON.stringify({error:'Tạm thời chưa lưu được.',code:'BATCH_BUSY'}),{status:503})));
+    assert.match(renderedText(renderer),/Tạm thời chưa lưu được/);
+    pending=deferred();await act(async()=>button(renderer,'Đã nấu món này').props.onClick());
+    assert.equal(sent.length,2);assert.deepEqual(sent[1],sent[0]);
+    const consumedAt=new Date().toISOString();const used=lots.slice(1).map(item=>({...item,status:'CONSUMED',consumed_at:consumedAt,consumed_by:'A'}));snapshot={...empty(),foods:[lots[0]],consumed:used};
+    await act(async()=>pending.resolve(new Response(JSON.stringify({items:used,consumed_at:consumedAt}))));
+    assert.equal(renderer.root.findAll(node=>node.props.role==='dialog'&&node.props['aria-labelledby']==='recipe-title').length,0);
+    assert.deepEqual(controller.getState().snapshot.foods.map(item=>item.id),['lot-one']);
+  } finally {if(renderer)await act(async()=>renderer.unmount());globalThis.fetch=oldFetch;if(oldStorage===undefined)delete globalThis.localStorage;else globalThis.localStorage=oldStorage;}
+});
+
+test('actual voice modal reviews source then rendered QuickAdd preserves zero days and clears absent quantity/tag', async () => {
+  const {VoiceInputModal}=await import(compile(fileURLToPath(new URL('../src/components/VoiceInputModal.tsx',import.meta.url))));
+  const {QuickAddModal}=await import(compile(fileURLToPath(new URL('../src/components/QuickAddModal.tsx',import.meta.url))));
+  const oldFetch=globalThis.fetch,oldWindow=globalThis.window;globalThis.window={};
+  const parsed={name:'Rau muống',quantity:'0.5 kg',compartment:'FRIDGE_BOTTOM',container_tag:'Hộp xanh',shelf_life_days:0};let applied,closed=0,submitted;
+  globalThis.fetch=async()=>new Response(JSON.stringify({parsed,confidence:0.7,source:'heuristic'}));
+  let renderer,form;
+  try {
+    await act(async()=>{renderer=create(React.createElement(VoiceInputModal,{isOpen:true,onClose:()=>closed++,onParsed:value=>applied=value}));});
+    await act(async()=>renderer.root.findByType('textarea').props.onChange({target:{value:'Nửa ký rau muống trong hộp xanh ngăn mát dưới dùng trong 0 ngày'}}));
+    await act(async()=>button(renderer,'Phân tích lời nói').props.onClick());
+    assert.equal(applied,undefined);assert.equal(closed,0);assert.match(renderedText(renderer),/cách cơ bản/);assert.match(renderedText(renderer),/0\s+ngày/);
+    await act(async()=>button(renderer,'Điền vào phiếu thêm').props.onClick());assert.deepEqual(applied,parsed);assert.equal(closed,1);
+    const props={isOpen:true,onClose:()=>{},onAdd:async value=>submitted=value,roomCode:room.code,initialData:applied};
+    await act(async()=>{form=create(React.createElement(QuickAddModal,props));});
+    assert.match(renderedText(form),/0\s+ngày/);assert.equal(form.root.find(node=>node.props['aria-label']==='Số lượng').props.value,'0.5 kg');assert.equal(form.root.find(node=>node.props['aria-label']==='Dấu hiệu nhận biết').props.value,'Hộp xanh');
+    await act(async()=>form.root.findByType('form').props.onSubmit({preventDefault(){}}));
+    assert.equal(submitted.shelf_life_days,0);assert.equal(submitted.compartment,'FRIDGE_BOTTOM');assert.equal(submitted.quantity,'0.5 kg');
+    await act(async()=>form.update(React.createElement(QuickAddModal,{...props,initialData:{name:'Trứng',compartment:'DOOR',shelf_life_days:0}})));
+    assert.equal(form.root.find(node=>node.props['aria-label']==='Số lượng').props.value,'');assert.equal(form.root.find(node=>node.props['aria-label']==='Dấu hiệu nhận biết').props.value,'');
+  } finally {if(renderer)await act(async()=>renderer.unmount());if(form)await act(async()=>form.unmount());globalThis.fetch=oldFetch;if(oldWindow===undefined)delete globalThis.window;else globalThis.window=oldWindow;}
+});
+
+test('closing voice input discards a delayed parse and reopening starts without a stale draft', async () => {
+  const {VoiceInputModal}=await import(compile(fileURLToPath(new URL('../src/components/VoiceInputModal.tsx',import.meta.url))));
+  const oldFetch=globalThis.fetch,oldWindow=globalThis.window;globalThis.window={};const pending=deferred();globalThis.fetch=()=>pending.promise;let applied=0,renderer;
+  const props={isOpen:true,onClose:()=>{},onParsed:()=>applied++};
+  try {
+    await act(async()=>{renderer=create(React.createElement(VoiceInputModal,props));});
+    await act(async()=>renderer.root.findByType('textarea').props.onChange({target:{value:'Trứng'}}));
+    await act(async()=>{button(renderer,'Phân tích lời nói').props.onClick();});
+    await act(async()=>renderer.update(React.createElement(VoiceInputModal,{...props,isOpen:false})));
+    await act(async()=>pending.resolve(new Response(JSON.stringify({parsed:{name:'Late',compartment:'DOOR',shelf_life_days:3},confidence:0.7,source:'heuristic'}))));
+    await act(async()=>renderer.update(React.createElement(VoiceInputModal,props)));
+    assert.equal(applied,0);assert.equal(renderer.root.findByType('textarea').props.value,'');assert.doesNotMatch(renderedText(renderer),/Late/);
+  } finally {if(renderer)await act(async()=>renderer.unmount());globalThis.fetch=oldFetch;if(oldWindow===undefined)delete globalThis.window;else globalThis.window=oldWindow;}
+});
+
+test('editing voice transcript invalidates its pending parse and displays actionable date validation', async () => {
+  const {VoiceInputModal}=await import(compile(fileURLToPath(new URL('../src/components/VoiceInputModal.tsx',import.meta.url))));
+  const oldFetch=globalThis.fetch,oldWindow=globalThis.window;globalThis.window={};let pending=deferred();globalThis.fetch=()=>pending.promise;let renderer;
+  try {
+    await act(async()=>{renderer=create(React.createElement(VoiceInputModal,{isOpen:true,onClose:()=>{},onParsed:()=>{throw new Error('Unexpected apply');}}));});
+    await act(async()=>renderer.root.findByType('textarea').props.onChange({target:{value:'Transcript A'}}));
+    await act(async()=>{button(renderer,'Phân tích lời nói').props.onClick();});
+    await act(async()=>renderer.root.findByType('textarea').props.onChange({target:{value:'Transcript B'}}));
+    await act(async()=>pending.resolve(new Response(JSON.stringify({parsed:{name:'Stale A',compartment:'DOOR',shelf_life_days:3},confidence:0.7,source:'heuristic'}))));
+    assert.doesNotMatch(renderedText(renderer),/Stale A/);assert.equal(button(renderer,'Điền vào phiếu thêm'),undefined);
+    pending=deferred();await act(async()=>{button(renderer,'Phân tích lời nói').props.onClick();});
+    await act(async()=>pending.resolve(new Response(JSON.stringify({error:'Hạn bảo quản phải là số nguyên từ 0 đến 365 ngày. Hãy sửa lời nói.',code:'INVALID_SHELF_LIFE'}),{status:400})));
+    assert.match(renderedText(renderer),/Hãy sửa lời nói/);assert.doesNotMatch(renderedText(renderer),/Kiểm tra kết nối/);
+  } finally {if(renderer)await act(async()=>renderer.unmount());globalThis.fetch=oldFetch;if(oldWindow===undefined)delete globalThis.window;else globalThis.window=oldWindow;}
+});

@@ -1,0 +1,56 @@
+- banner:
+  - img "ShareFridge"
+  - heading "Kiểm thử C023" [level=1]
+  - status: Cập nhật định kỳ
+  - 'button "C020 Browser Audit #644780"':
+    - generic: C020 Browser Audit
+    - generic: "#644780"
+  - button "Cài đặt phòng & tài khoản":
+  - button "Thông báo":
+  - button "Làm mới":
+- main:
+  - button "Tất cả 0":
+    - generic: Tất cả
+    - generic: "0"
+  - button "Nấu gấp 0":
+    - generic: Nấu gấp
+    - generic: "0"
+  - button "Ngăn đông 0":
+    - generic: Ngăn đông
+    - generic: "0"
+  - button "Cần mua 0":
+    - generic: Cần mua
+    - generic: "0"
+  - textbox "Tìm nhanh trong tủ..."
+  - button "Tất cả"
+  - button "⚠️ Nấu gấp"
+  - button "❄️ Ngăn đông"
+  - button "🥩 Ngăn mát"
+  - button "🥬 Hộc rau"
+  - button "🥚 Cánh tủ"
+  - generic: 🥗
+  - heading "Chưa có món nào ở mục này" [level=4]
+  - button "Thêm món ngay":
+    - generic: Thêm món ngay
+- button "Tủ lạnh":
+  - generic: Tủ lạnh
+- button "Nấu gì?":
+  - generic: Nấu gì?
+- button:
+- button:
+- button "Đi chợ":
+  - generic: Đi chợ
+- button "Đã dùng":
+  - generic: Đã dùng
+- generic: Thêm bằng giọng nói
+- button:
+- button:
+- text: Lời nói của bạn
+- textbox "Lời nói của bạn":
+  - /placeholder: Nửa ký thịt ba chỉ trong hộp xanh, ngăn đông, dùng trong 7 ngày
+  - text: Nửa ký thịt ba chỉ trong hộp xanh, ngăn đông, dùng trong 7 ngày
+- status:
+  - paragraph: Đã phân tích bằng cách cơ bản, chưa có kết quả từ Gemini. Kiểm tra lại ở phiếu thêm món.
+  - paragraph: thịt ba chỉ — 0.5 kg — Hộp xanh — 7 ngày
+- button "Điền vào phiếu thêm":
+  - generic: Điền vào phiếu thêm

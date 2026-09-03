@@ -1,0 +1,18 @@
+
+> share-fridge@1.0.0 test:ai-postgres
+> node --test --test-timeout=60000 tests/ai_postgres.integration.js
+
+✔ 12 concurrent replays on two PostgreSQL processes transition exact IDs once and survive process restart (389.540417ms)
+✔ overlapping batches with different keys have one whole winner without partial consumption or revision deadlock (22.773167ms)
+✔ missing, foreign, expired and duplicate IDs reject before mutation; corrected absolute expiry is authoritative (17.068291ms)
+✔ injected shopping insert failure rolls back all food rows, replay record and sync revision (20.252625ms)
+✔ held row lock times out safely, releases transaction locks and permits retry after blocker rolls back (2028.491667ms)
+✔ a concurrent single consume and batch never leave only part of a losing batch applied (10.793334ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2557.968875

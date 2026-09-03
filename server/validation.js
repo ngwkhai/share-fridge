@@ -57,3 +57,11 @@ export function subscriptionDto(data) {
   const p256dh = text(keys.p256dh, 'subscription.keys.p256dh', 4096);
   return { subscription: { endpoint, keys: { auth, p256dh } }, device_name: text(data.device_name, 'device_name', 100, { optional: true, empty: true }) };
 }
+
+export function consumeBatchDto(data) {
+  fields(data, ['food_ids', 'idempotency_key', 'add_to_shopping_list']);
+  if (!Array.isArray(data.food_ids) || data.food_ids.length < 1 || data.food_ids.length > 50) invalid('food_ids must contain 1 to 50 unique IDs.');
+  const ids = data.food_ids.map(id => text(id, 'food_ids', 200));
+  if (new Set(ids).size !== ids.length) invalid('food_ids must contain unique IDs.');
+  return { food_ids: ids, idempotency_key: text(data.idempotency_key, 'idempotency_key', 200), add_to_shopping_list: boolean(data.add_to_shopping_list, 'add_to_shopping_list', false) };
+}

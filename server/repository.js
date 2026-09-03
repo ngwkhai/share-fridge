@@ -46,6 +46,20 @@ function productionGuard() {
   }
 }
 
+function batchHash(ids, addToShopping) {
+  return crypto.createHash('sha256').update(JSON.stringify({ food_ids: [...ids].sort(), add_to_shopping_list: addToShopping })).digest('hex');
+}
+function assertCookable(rows, expected, now) {
+  if (rows.length !== expected) throw new HttpError(404, 'FOOD_NOT_FOUND', 'Một nguyên liệu không còn trong tủ. Hãy lấy gợi ý mới.');
+  if (rows.some(row => row.status === 'CONSUMED' || !Number.isFinite(Date.parse(row.expiry_date)) || Date.parse(row.expiry_date) <= now)) {
+    throw new HttpError(409, 'FOOD_UNAVAILABLE', 'Một nguyên liệu đã dùng hoặc hết hạn. Chưa có món đồ nào được cập nhật; hãy lấy gợi ý mới.');
+  }
+}
+function replayBatch(prior, hash) {
+  if (prior.request_hash !== hash) throw new HttpError(409, 'IDEMPOTENCY_CONFLICT', 'Lần nấu này đã được dùng cho danh sách nguyên liệu khác.');
+  return structuredClone(prior.response);
+}
+
 export function createMemoryRepository(seed = {}) {
   productionGuard();
   const rooms = new Map((seed.rooms || []).map(item => [item.code, structuredClone(item)]));
@@ -54,6 +68,7 @@ export function createMemoryRepository(seed = {}) {
   const subscribers = new Map((seed.subscribers || []).map(item => [item.id, structuredClone(item)]));
   const limits = new Map();
   const movedShopping = new Set();
+  const batches = new Map();
   let serial = Promise.resolve();
   const locked = operation => {
     const next = serial.then(operation, operation);
@@ -127,6 +142,27 @@ export function createMemoryRepository(seed = {}) {
           }
         }
         return structuredClone(item);
+      });
+    },
+    async consumeBatch(ids, code, actor, addToShopping, key) {
+      assertTest();
+      return locked(() => {
+        const operationKey = `${code}:consume-batch:${key}`, hash = batchHash(ids, addToShopping);
+        if (batches.has(operationKey)) return replayBatch(batches.get(operationKey), hash);
+        const rows = [...ids].sort().map(id => foods.get(id)).filter(row => row?.room_code === code);
+        const now = Date.now();
+        assertCookable(rows, ids.length, now);
+        const consumedAt = new Date(now).toISOString();
+        for (const row of rows) {
+          row.status = 'CONSUMED'; row.consumed_by = actor; row.consumed_at = consumedAt;
+          if (addToShopping) {
+            const item = { id: crypto.randomUUID(), room_code: code, name: row.name, quantity: row.quantity, is_bought: false, created_at: consumedAt };
+            shoppingItems.set(item.id, item);
+          }
+        }
+        const response = { items: structuredClone(rows), consumed_at: consumedAt };
+        batches.set(operationKey, { request_hash: hash, response });
+        return structuredClone(response);
       });
     },
     async deleteFood(id, code) { assertTest(); const item = foods.get(id); return Boolean(item?.room_code === code && foods.delete(id)); },
@@ -277,6 +313,31 @@ export function createPostgresRepository({ connectionString = process.env.DATABA
           return normalizeFood(consumed);
         }
         return normalizeFood(row);
+      });
+    },
+    async consumeBatch(ids, code, actor, addToShopping, key) {
+      const sorted = [...ids].sort(), hash = batchHash(ids, addToShopping);
+      return transaction(pool, async client => {
+        await client.query("set local lock_timeout='2s'; set local statement_timeout='5s'");
+        await client.query('select pg_advisory_xact_lock(hashtextextended($1,0))', [JSON.stringify([code, 'consume-batch', key])]);
+        const prior = (await client.query("select request_hash,response from sharefridge_private.idempotency_keys where room_code=$1 and operation='consume-batch' and key=$2", [code, key])).rows[0];
+        if (prior) return replayBatch(prior, hash);
+        if (sorted.some(id => !isUuid(id))) throw new HttpError(404, 'FOOD_NOT_FOUND', 'Một nguyên liệu không còn trong tủ. Hãy lấy gợi ý mới.');
+        // Lock the entire set in a deterministic order before the first write.
+        // Food/shopping writes also lock the room revision through its trigger.
+        const rows = (await client.query('select * from public.foods where room_code=$1 and id=any($2::uuid[]) order by id for update', [code, sorted])).rows;
+        const now = (await client.query('select clock_timestamp() as now')).rows[0].now;
+        assertCookable(rows, ids.length, now.getTime());
+        const result = await client.query("update public.foods set status='CONSUMED',consumed_by=$3,consumed_at=$4 where room_code=$1 and id=any($2::uuid[]) returning *", [code, sorted, actor, now]);
+        if (addToShopping) for (const row of rows) {
+          await client.query('insert into public.shopping_items(id,room_code,name,quantity,is_bought,created_at) values($1,$2,$3,$4,false,$5)', [crypto.randomUUID(), code, row.name, row.quantity, now]);
+        }
+        const response = { items: result.rows.map(normalizeFood).sort((a, b) => a.id.localeCompare(b.id)), consumed_at: now.toISOString() };
+        await client.query("insert into sharefridge_private.idempotency_keys(room_code,operation,key,request_hash,response) values($1,'consume-batch',$2,$3,$4)", [code, key, hash, JSON.stringify(response)]);
+        return response;
+      }).catch(error => {
+        if (['55P03','57014','40P01'].includes(error.code)) throw new HttpError(503, 'BATCH_BUSY', 'Tủ đang có thay đổi khác. Chưa lưu lần nấu này; hãy thử lại.');
+        throw error;
       });
     },
     async deleteFood(id, code) { if (!isUuid(id)) return false; return (await query('delete from public.foods where id=$1 and room_code=$2', [id,code])).rowCount > 0; },

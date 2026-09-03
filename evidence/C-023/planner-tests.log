@@ -1,0 +1,108 @@
+
+> share-fridge@1.0.0 test
+> node --test tests/*.test.js
+
+✔ GET /healthz returns ok and 200 (127.873375ms)
+✔ GET /api/openapi.json returns valid spec (6.68725ms)
+✔ POST /api/rooms and GET /api/rooms/:code works (170.004ms)
+✔ Food CRUD and status calculation works (5.710084ms)
+[gemini] fallback reason=not_configured
+✔ AI parse-voice endpoint returns structured JSON (3.315292ms)
+✔ App first load and retry never claim an empty fridge (cached room) (57.710917ms)
+✔ App first load and retry never claim an empty fridge (legacy room-less session) (14.146584ms)
+✔ App keeps the last complete snapshot visible when refreshing fails (4.391834ms)
+✔ App displays verified profile in header/settings and clears it on external session logout (24.677958ms)
+✔ actual Google button ignores cancelled credentials and exposes verification errors without profiles (5.579791ms)
+✔ actual App cooks recipe exact IDs once, disables competing actions, shows missing ingredients and retries the same key (36.487ms)
+✔ actual voice modal reviews source then rendered QuickAdd preserves zero days and clears absent quantity/tag (11.714333ms)
+✔ closing voice input discards a delayed parse and reopening starts without a stale draft (5.184375ms)
+✔ editing voice transcript invalidates its pending parse and displays actionable date validation (3.60775ms)
+✔ Security Utils: Hashing and Verification works (285.881625ms)
+✔ Security Utils: Session Token Generation and Verification works (0.74425ms)
+✔ API Auth: Create Room with Passcode and Join with Passcode (263.209708ms)
+✔ API Auth: Verify Token endpoint (2.0315ms)
+✔ actual client creates, edits, consumes, reads history, moves shopping exactly once, and deletes (412.202166ms)
+✔ invalid DTOs and boolean coercion fail 400 without mutations (25.206ms)
+✔ actual client throws typed 401/403/404/500 errors; room failure never auto-recreates (57.412166ms)
+✔ malformed success, non-JSON error and offline connection never return success-shaped data (1.321291ms)
+✔ actual notification client uses documented route; malformed subscriptions are rejected (10.132625ms)
+✔ every planning method/path exists in runtime spec; all schemas compile and required shapes are present (141.591167ms)
+✔ planned session renewal is authenticated and explicitly unavailable without changing the session (5.317459ms)
+[gemini] fallback reason=not_configured
+✔ actual recipe client consumes exact IDs atomically and retries the same operation (7.658333ms)
+✔ all actual client HTTP responses match the corresponding runtime operation schema (26.83625ms)
+✔ future integrations expose explicit unavailable responses, config works without a database (8.501ms)
+[gemini] fallback reason=not_configured
+[gemini] fallback reason=not_configured
+✔ E2E Full Roommate Flow: Room Creation -> Voice Add -> Expiry Warning -> AI Recipe Cook -> Shopping List (238.50125ms)
+[gemini] fallback reason=invalid_schema
+[gemini] fallback reason=invalid_schema
+[gemini] fallback reason=invalid_schema
+[gemini] fallback reason=invalid_schema
+[gemini] fallback reason=invalid_schema
+[gemini] fallback reason=invalid_schema
+[gemini] fallback reason=invalid_schema
+[gemini] fallback reason=invalid_schema
+[gemini] fallback reason=invalid_schema
+[gemini] fallback reason=invalid_schema
+[gemini] fallback reason=invalid_schema
+[gemini] fallback reason=invalid_schema
+[gemini] fallback reason=not_configured
+✔ Vietnamese extraction fixes actual preview half-kilo/7-day baseline, explicit locations, zero and packaging (170.613208ms)
+✔ provider request uses structured schema, omits expired inventory, validates source and canonical owned IDs (1.366875ms)
+✔ malformed, foreign/missing/expired/consumed IDs and mismatched ingredient names never become provider success (2.494167ms)
+[gemini] fallback reason=invalid_schema
+[gemini] fallback reason=invalid_schema
+[gemini] fallback reason=invalid_schema
+[gemini] fallback reason=invalid_schema
+[gemini] fallback reason=invalid_schema
+[gemini] fallback reason=invalid_schema
+✔ provider result is rechecked against expiry after a slow request (75.276375ms)
+✔ voice schema rejects invalid enums, numbers, bounds and keeps explicitly spoken zero (10.243834ms)
+✔ transport aborts stalled actual HTTP response without retry, bounds bytes and never logs provider secrets (92.292667ms)
+[gemini] fallback reason=not_configured
+✔ actual HTTP reports source and correct empty inventory, rejects invalid spoken dates (5.259334ms)
+✔ real RSA verification rejects fake signature, expired, wrong audience/issuer and unverified claims (290.46275ms)
+✔ actual client verifies two stable identities, enforces PIN, persists profile through create/join/reload, and clears on logout (179.759167ms)
+✔ verified room payload repairs tampered cache profile; malformed profiles rejected and legacy sessions remain valid (44.116125ms)
+✔ missing provider configuration is public false/null and Google auth fails safely without a database (2.5005ms)
+✔ certificate transport aborts a stalled fetch and never retries a 503 (122.982625ms)
+✔ logout during real Google verification rejects the late identity response (1.793708ms)
+✔ actual realtime lifecycle refreshes token, recreates failed channels, and cleans timers/listeners/stale callbacks (2.620292ms)
+✔ realtime config requires matching legacy project key, not presence or a service role (1.484417ms)
+✔ room JWT is authenticated, signed, scoped and bounded by room session expiry (1.402334ms)
+✔ every data route rejects missing and malformed Bearer sessions (225.331792ms)
+✔ a second room cannot read, mutate, consume, delete or subscribe in the first room (15.6125ms)
+✔ duplicate room creation through either endpoint preserves credentials and records (252.14425ms)
+✔ room responses whitelist public fields including verify-token and legacy creation (85.74825ms)
+✔ room code, mandatory PIN and nickname types/bounds are validated on both create routes (20.127125ms)
+✔ unknown-room and tampered tokens cannot authorize requests (12.349792ms)
+✔ a valid signature never substitutes for required well-typed unexpired session claims (0.42475ms)
+✔ production rejects absent/default/weak session secrets before inserting a room (2.502875ms)
+✔ malformed JSON is 400 and parsed serverless bodies complete without stream listeners (138.987167ms)
+✔ actor fields are derived from the session (2.669333ms)
+✔ legacy password hashes remain readable and malformed hashes fail without throwing (103.295709ms)
+✔ failures never expose internal exception details (1.394042ms)
+✔ failed PIN attempts are throttled even when the caller spoofs X-Forwarded-For (166.589042ms)
+✔ served OpenAPI declares auth routes, protected operations and safe error/room schemas (1.39975ms)
+✔ two controllers use actual HTTP: delete final item, reload/reconnect remain empty and no cache POST replay (98.14275ms)
+✔ late pre-mutation snapshot cannot resurrect a deleted row (0.202458ms)
+✔ logout and room switch invalidate delayed reads, callbacks and auth failures (0.151167ms)
+✔ late successful write and queued writes cannot affect a replacement session (0.35ms)
+✔ offline writes never execute; failed refresh keeps snapshot; 403 retains session; 401 clears it (0.250166ms)
+✔ SUBSCRIBED waits for refreshed snapshot before connected status (0.0775ms)
+✔ actual cache preserves stable IDs/absolute expiry, ages status, accepts empty, and clears on logout (0.536958ms)
+✔ canonical session token wins cross-tab write ordering and late login cannot restore logout (0.826459ms)
+✔ session switch during post-write refresh rejects completion for the old UI (0.157875ms)
+✔ Session Cache & Room Auto-Creation: API creates room with passcode and verifies token (95.975667ms)
+✔ Supabase Schema SQL: File exists and contains complete PostgreSQL schema (0.834041ms)
+✔ Vercel Config: vercel.json is valid and contains required rewrites & PWA headers (1.445334ms)
+✔ Vercel Serverless Function: api/index.js handles healthz and auth requests (2.044459ms)
+ℹ tests 72
+ℹ suites 0
+ℹ pass 72
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1640.763959

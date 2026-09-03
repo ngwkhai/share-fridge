@@ -27,17 +27,17 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
   const [quantity, setQuantity] = useState(initialData?.quantity || '');
   const [compartment, setCompartment] = useState<CompartmentType>(initialData?.compartment || 'FRIDGE_TOP');
   const [containerTag, setContainerTag] = useState(initialData?.container_tag || '');
-  const [shelfDays, setShelfDays] = useState(initialData?.shelf_life_days || 3);
+  const [shelfDays, setShelfDays] = useState(initialData?.shelf_life_days ?? 3);
   const [photoUrl, setPhotoUrl] = useState<string | null>(initialData?.photo_url || null);
   const [submitting, setSubmitting] = useState(false);
 
   React.useEffect(() => {
     if (initialData) {
       if (initialData.name) setName(initialData.name);
-      if (initialData.quantity) setQuantity(initialData.quantity);
+      setQuantity(initialData.quantity ?? '');
       if (initialData.compartment) setCompartment(initialData.compartment);
-      if (initialData.container_tag) setContainerTag(initialData.container_tag);
-      if (initialData.shelf_life_days) setShelfDays(initialData.shelf_life_days);
+      setContainerTag(initialData.container_tag ?? '');
+      setShelfDays(initialData.shelf_life_days ?? 3);
     }
   }, [initialData]);
 
@@ -108,6 +108,10 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
           </div>
 
           {/* Vị trí ngăn tủ */}
+          <label className="block space-y-1.5 text-xs font-semibold text-slate-700">
+            <span>Số lượng</span>
+            <input aria-label="Số lượng" value={quantity} maxLength={200} onChange={event => setQuantity(event.target.value)} className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm" placeholder="Ví dụ: 0.5 kg" />
+          </label>
           <div className="space-y-1">
             <div className="grid grid-cols-3 gap-1.5 text-xs font-semibold">
               {[
@@ -167,6 +171,10 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
 
           {/* Nhãn nhận diện & Camera */}
           <div className="space-y-2">
+            <label className="block space-y-1.5 text-xs font-semibold text-slate-700">
+              <span>Dấu hiệu nhận biết</span>
+              <input aria-label="Dấu hiệu nhận biết" value={containerTag} maxLength={200} onChange={event => setContainerTag(event.target.value)} className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm" placeholder="Ví dụ: Hộp xanh" />
+            </label>
             <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
               {containerPresets.map((tag) => (
                 <button

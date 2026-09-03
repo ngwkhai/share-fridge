@@ -152,7 +152,7 @@ const food: Guard<FoodItem> = (x): x is FoodItem => object(x) && nonempty(x.id) 
 const shopping: Guard<ShoppingItem> = (x): x is ShoppingItem => object(x) && nonempty(x.id) && roomCode(x.room_code) && nonempty(x.name) && optional(x.quantity, string) && typeof x.is_bought === 'boolean' && date(x.created_at);
 const list = <T>(guard: Guard<T>): Guard<{ items: T[]; total: number }> => (x): x is { items: T[]; total: number } => object(x) && Array.isArray(x.items) && x.items.every(guard) && integer(x.total) && x.total === x.items.length;
 const parsed: Guard<ParsedFoodItem> = (x): x is ParsedFoodItem => object(x) && nonempty(x.name) && compartment(x.compartment) && integer(x.shelf_life_days) && x.shelf_life_days >= 0 && x.shelf_life_days <= 365 && optional(x.quantity, string) && optional(x.container_tag, string);
-const recipe: Guard<RecipeSuggestion> = (x): x is RecipeSuggestion => object(x) && nonempty(x.id) && nonempty(x.title) && integer(x.cook_time_minutes) && x.cook_time_minutes > 0 && ['food_ids','ingredients_used','ingredients_missing','instructions'].every(key => strings(x[key]));
+const recipe: Guard<RecipeSuggestion> = (x): x is RecipeSuggestion => object(x) && nonempty(x.id) && nonempty(x.title) && integer(x.cook_time_minutes) && x.cook_time_minutes > 0 && ['food_ids','ingredients_used','ingredients_missing','instructions'].every(key => strings(x[key])) && Array.isArray(x.food_ids) && x.food_ids.length > 0 && x.food_ids.length <= 50 && new Set(x.food_ids).size === x.food_ids.length;
 const source = (x: unknown) => x === 'gemini-2.5-flash' || x === 'heuristic';
 const deleted = (id: string): Guard<{ success: true; deleted_id: string }> => (x): x is { success: true; deleted_id: string } => object(x) && x.success === true && x.deleted_id === id;
 
@@ -259,6 +259,9 @@ export const api = {
   },
   async deleteShoppingItem(id: string): Promise<void> {
     await request(`/api/shopping-items/${encodeURIComponent(id)}`, deleted(id), { method: 'DELETE' });
+  },
+  async consumeBatch(foodIds: string[], idempotencyKey: string, addToShoppingList = false) {
+    return request('/api/foods/consume-batch', (x): x is { items: FoodItem[]; consumed_at: string } => object(x) && Array.isArray(x.items) && x.items.every(food) && x.items.length === foodIds.length && new Set(x.items.map(item => item.id)).size === foodIds.length && x.items.every(item => foodIds.includes(item.id) && item.status === 'CONSUMED' && item.consumed_at === x.consumed_at) && date(x.consumed_at), { method: 'POST', body: { food_ids: foodIds, idempotency_key: idempotencyKey, add_to_shopping_list: addToShoppingList } });
   },
   async parseVoice(transcript: string) {
     return request('/api/ai/parse-voice', (x): x is { parsed: ParsedFoodItem; confidence: number; source: string } => object(x) && parsed(x.parsed) && typeof x.confidence === 'number' && x.confidence >= 0 && x.confidence <= 1 && source(x.source), { method: 'POST', body: { transcript } });

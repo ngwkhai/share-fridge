@@ -27,7 +27,7 @@ const schemas = {
   CreateFoodDto: object({ room_code: code, name: str(200,1), quantity: str(200), compartment: comp, container_tag: str(200), shelf_life_days: { type: 'integer', minimum: 0, maximum: 365 }, photo_url: nullable(str(8192)), storage_path: nullable(str(8192)), notes: nullable(str(2000)), created_by: { ...str(), description: 'Ignored; actor comes from the verified session.' } }, ['room_code','name','compartment','shelf_life_days'], { additionalProperties: false }),
   UpdateFoodDto: object({ name: str(200,1), quantity: str(200), compartment: comp, container_tag: str(200), expiry_date: date, notes: nullable(str(2000)), photo_url: nullable(str(8192)), storage_path: nullable(str(8192)) }, [], { minProperties: 1, additionalProperties: false }),
   ConsumeFoodDto: object({ add_to_shopping_list: bool, consumed_by: { ...str(), description: 'Ignored; actor comes from the verified session.' } }, [], { additionalProperties: false }),
-  ConsumeBatchDto: object({ food_ids: { ...array(id), minItems: 1, uniqueItems: true }, idempotency_key: str(200,1), add_to_shopping_list: bool }, ['food_ids','idempotency_key']),
+  ConsumeBatchDto: object({ food_ids: { ...array(id), minItems: 1, maxItems: 50, uniqueItems: true }, idempotency_key: str(200,1), add_to_shopping_list: bool }, ['food_ids','idempotency_key'], { additionalProperties: false }),
   ParsedFoodItem: object({ name: str(200,1), quantity: str(200), compartment: comp, container_tag: str(200), shelf_life_days: { type: 'integer', minimum: 0, maximum: 365 } }, ['name','compartment','shelf_life_days']),
   RecipeSuggestion: object({ id, title: str(), cook_time_minutes: { type: 'integer', minimum: 1 }, food_ids: array(id), ingredients_used: array(str()), ingredients_missing: array(str()), instructions: array(str()) }),
   ShoppingItem: object({ id, room_code: code, name: str(200,1), quantity: str(200), is_bought: bool, created_at: date }, ['id','room_code','name','is_bought','created_at']),
@@ -82,10 +82,10 @@ endpoint('get','/api/foods','FoodList',{parameters:[query('room_code',code),quer
 endpoint('post','/api/foods','FoodItem',{input:'CreateFoodDto',status:201});
 endpoint('patch','/api/foods/{id}','FoodItem',{input:'UpdateFoodDto'});
 endpoint('patch','/api/foods/{id}/consume','FoodItem',{input:'ConsumeFoodDto'});
-endpoint('post','/api/foods/consume-batch','ConsumeBatchResult',{input:'ConsumeBatchDto',unavailable:'C023: atomic batch integration returns 503 until implemented.'});
+endpoint('post','/api/foods/consume-batch','ConsumeBatchResult',{input:'ConsumeBatchDto'});
 endpoint('delete','/api/foods/{id}','Deleted');
 endpoint('post','/api/ai/parse-voice','ParseVoiceResult',{input:object({transcript:str(2000,1)})});
-endpoint('post','/api/ai/suggest-recipes','RecipeResult',{input:object({room_code:code,preference:str(2000)},['room_code']),unavailable:'C023 owns recipe food_ids/source normalization; consumers reject incomplete responses.'});
+endpoint('post','/api/ai/suggest-recipes','RecipeResult',{input:object({room_code:code,preference:str(2000)},['room_code'])});
 endpoint('get','/api/shopping-items','ShoppingList',{parameters:[query('room_code',code)]});
 endpoint('post','/api/shopping-items','ShoppingItem',{input:'CreateShoppingItemDto',status:201});
 endpoint('patch','/api/shopping-items/{id}/toggle','ShoppingItem',{input:'ToggleShoppingDto'});

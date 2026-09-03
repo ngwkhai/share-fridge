@@ -1,0 +1,28 @@
+- banner:
+  - img "ShareFridge"
+  - heading "Kiểm thử C023" [level=1]
+  - status: Cập nhật định kỳ
+  - 'button "C020 Browser Audit #644780"':
+    - generic: C020 Browser Audit
+    - generic: "#644780"
+  - button "Cài đặt phòng & tài khoản":
+  - button "Thông báo":
+  - button "Làm mới":
+- main:
+  - heading "Đã dùng (2)" [level=3]
+  - generic: Rau kiểm thử C020
+  - generic: FRIDGE_TOP
+  - button "Xóa"
+  - generic: thịt ba chỉ
+  - generic: FREEZER
+  - button "Xóa"
+- button "Tủ lạnh":
+  - generic: Tủ lạnh
+- button "Nấu gì?":
+  - generic: Nấu gì?
+- button:
+- button:
+- button "Đi chợ":
+  - generic: Đi chợ
+- button "Đã dùng" [active]:
+  - generic: Đã dùng

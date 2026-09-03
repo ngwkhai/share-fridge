@@ -1,0 +1,82 @@
+- banner:
+  - img "ShareFridge"
+  - heading "Kiểm thử C023" [level=1]
+  - status: Cập nhật định kỳ
+  - 'button "C020 Browser Audit #644780"':
+    - generic: C020 Browser Audit
+    - generic: "#644780"
+  - button "Cài đặt phòng & tài khoản":
+  - button "Thông báo":
+  - button "Làm mới":
+- main:
+  - button "Tất cả 0":
+    - generic: Tất cả
+    - generic: "0"
+  - button "Nấu gấp 0":
+    - generic: Nấu gấp
+    - generic: "0"
+  - button "Ngăn đông 0":
+    - generic: Ngăn đông
+    - generic: "0"
+  - button "Cần mua 0":
+    - generic: Cần mua
+    - generic: "0"
+  - textbox "Tìm nhanh trong tủ..."
+  - button "Tất cả"
+  - button "⚠️ Nấu gấp"
+  - button "❄️ Ngăn đông"
+  - button "🥩 Ngăn mát"
+  - button "🥬 Hộc rau"
+  - button "🥚 Cánh tủ"
+  - generic: 🥗
+  - heading "Chưa có món nào ở mục này" [level=4]
+  - button "Thêm món ngay":
+    - generic: Thêm món ngay
+- button "Tủ lạnh":
+  - generic: Tủ lạnh
+- button "Nấu gì?":
+  - generic: Nấu gì?
+- button:
+- button:
+- button "Đi chợ":
+  - generic: Đi chợ
+- button "Đã dùng":
+  - generic: Đã dùng
+- heading "Thêm Món Mới" [level=3]
+- button:
+- 'textbox "Tên thực phẩm (VD: Thịt ba chỉ...)" [active]': thịt ba chỉ
+- button "Thịt ba chỉ"
+- button "Trứng gà"
+- button "Rau muống"
+- button "Thịt bò"
+- button "Sữa chua"
+- button "Đậu phụ"
+- button "Cà chua"
+- button "Xúc xích"
+- text: Số lượng
+- textbox "Số lượng":
+  - /placeholder: "Ví dụ: 0.5 kg"
+  - text: 0.5 kg
+- button "❄️ Ngăn đông"
+- button "🥩 Mát trên"
+- button "🍲 Mát dưới"
+- button "🥬 Hộc rau"
+- button "🥚 Cánh tủ"
+- generic: Hạn bảo quản
+- generic: 7 ngày
+- button "1 ngày"
+- button "3 ngày"
+- button "7 ngày"
+- button "14 ngày"
+- text: Dấu hiệu nhận biết
+- textbox "Dấu hiệu nhận biết":
+  - /placeholder: "Ví dụ: Hộp xanh"
+  - text: Hộp xanh
+- button "Hộp Lock xanh"
+- button "Túi zip trắng"
+- button "Túi nilon đỏ"
+- button "Hộp thủy tinh"
+- button "Chụp ảnh hộp/túi đồ":
+  - generic: Chụp ảnh hộp/túi đồ
+- button "Lưu vào tủ":
+  - generic: Lưu vào tủ

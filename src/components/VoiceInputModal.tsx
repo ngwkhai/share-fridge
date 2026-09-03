@@ -19,8 +19,14 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   const [isParsing, setIsParsing] = useState(false);
   const [error, setError] = useState('');
   const recognitionRef = useRef<any>(null);
+  const generation = useRef(0);
+  const parseAttempt = useRef(0);
+  const [preview, setPreview] = useState<{ parsed: ParsedFoodItem; source: string } | null>(null);
 
   useEffect(() => {
+    const ticket = ++generation.current;
+    parseAttempt.current++;
+    setPreview(null); setIsParsing(false);
     if (!isOpen) {
       if (recognitionRef.current) {
         try { recognitionRef.current.stop(); } catch {}
@@ -44,6 +50,8 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
       };
 
       recognition.onresult = (event: any) => {
+        if (ticket !== generation.current) return;
+        parseAttempt.current++; setIsParsing(false); setPreview(null);
         let currentTranscript = '';
         for (let i = 0; i < event.results.length; i++) {
           currentTranscript += event.results[i][0].transcript;
@@ -73,6 +81,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
     }
 
     return () => {
+      generation.current++;
       if (recognitionRef.current) {
         try { recognitionRef.current.stop(); } catch {}
       }
@@ -96,16 +105,20 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   };
 
   const handleParseAndApply = async () => {
-    if (!transcript.trim()) return;
-    setIsParsing(true);
+    if (!transcript.trim() || isParsing) return;
+    if (preview) { onParsed(preview.parsed); onClose(); return; }
+    const ticket = generation.current;
+    const attempt = ++parseAttempt.current;
+    const token = api.sessionCache.get()?.token;
+    setIsParsing(true); setError('');
     try {
       const result = await api.parseVoice(transcript);
-      onParsed(result.parsed);
-      onClose();
-    } catch {
-      setError('Lỗi phân tích AI. Thử lại.');
+      if (ticket !== generation.current || attempt !== parseAttempt.current || token !== api.sessionCache.get()?.token) return;
+      setPreview(result);
+    } catch (err) {
+      if (ticket === generation.current && attempt === parseAttempt.current && token === api.sessionCache.get()?.token) setError(err instanceof Error ? err.message : 'Chưa phân tích được lời nói. Hãy thử lại.');
     } finally {
-      setIsParsing(false);
+      if (ticket === generation.current && attempt === parseAttempt.current) setIsParsing(false);
     }
   };
 
@@ -115,7 +128,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-2 text-fresh-400 font-extrabold text-sm tracking-wide">
             <Sparkles className="w-4 h-4" />
-            <span>AI Voice Assistant</span>
+            <span>Thêm bằng giọng nói</span>
           </div>
           <button
             onClick={onClose}
@@ -139,7 +152,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
           <button
             type="button"
             onClick={handleToggleListening}
-            className={`relative z-10 w-22 h-22 rounded-full flex items-center justify-center transition-all shadow-xl active:scale-95 ${
+            className={`relative z-10 w-24 h-24 rounded-full flex items-center justify-center transition-all shadow-xl active:scale-95 ${
               isListening
                 ? 'bg-gradient-to-tr from-rose-500 to-amber-500 text-white shadow-[0_0_40px_rgba(239,68,68,0.6)]'
                 : 'bg-gradient-to-tr from-fresh-500 to-emerald-400 text-slate-950 shadow-[0_0_30px_rgba(16,185,129,0.5)]'
@@ -149,16 +162,14 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
           </button>
         </div>
 
-        {/* Live Transcript Output Box */}
-        <div className="p-4 bg-white/5 border border-white/10 rounded-2xl min-h-[64px] flex items-center justify-center text-center text-sm font-medium">
-          {transcript ? (
-            <span className="text-fresh-300 font-semibold tracking-wide">"{transcript}"</span>
-          ) : (
-            <span className="text-slate-400 text-xs italic">
-              {isListening ? 'Đang lắng nghe...' : 'Chạm vào micro và nói: "Thịt ba chỉ 5 lạng ngăn đông túi xanh"'}
-            </span>
-          )}
+        <div className="text-left space-y-2">
+          <label htmlFor="voice-transcript" className="text-sm font-semibold">Lời nói của bạn</label>
+          <textarea id="voice-transcript" value={transcript} maxLength={2000} onChange={event => { parseAttempt.current++; setIsParsing(false); setError(''); setTranscript(event.target.value); setPreview(null); }} className="w-full min-h-24 p-3 rounded-xl bg-white/10 border border-white/20 text-sm" placeholder="Nửa ký thịt ba chỉ trong hộp xanh, ngăn đông, dùng trong 7 ngày" />
         </div>
+        {preview && <div role="status" className="text-left p-3 rounded-xl bg-white/10 space-y-2 text-sm">
+          <p>{preview.source === 'heuristic' ? 'Đã phân tích bằng cách cơ bản, chưa có kết quả từ Gemini.' : 'Đã phân tích bằng Gemini.'} Kiểm tra lại ở phiếu thêm món.</p>
+          <p>{preview.parsed.name} — {preview.parsed.quantity || 'Chưa có số lượng'} — {preview.parsed.container_tag || 'Chưa có dấu hiệu nhận biết'} — {preview.parsed.shelf_life_days} ngày</p>
+        </div>}
 
         {error && <p className="text-xs text-rose-400 font-semibold">{error}</p>}
 
@@ -169,7 +180,7 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
           className="w-full py-3.5 bg-gradient-to-r from-fresh-500 to-emerald-400 hover:from-fresh-400 hover:to-emerald-300 disabled:opacity-30 text-slate-950 font-black rounded-2xl text-sm flex items-center justify-center gap-2 shadow-lg transition-all active:scale-98"
         >
           <CheckCircle2 className="w-4 h-4" />
-          <span>{isParsing ? 'Đang trích xuất AI...' : 'Áp dụng vào Tủ'}</span>
+          <span>{isParsing ? 'Đang phân tích...' : preview ? 'Điền vào phiếu thêm' : 'Phân tích lời nói'}</span>
         </button>
       </div>
     </div>

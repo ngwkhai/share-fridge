@@ -12,7 +12,8 @@
     "test:postgres": "node --test --test-timeout=60000 tests/postgres.integration.js",
     "api:spec": "node server/build-openapi.js",
     "test:client-postgres": "node --test --test-timeout=60000 tests/client_postgres.integration.js",
-    "test:sync-postgres": "node --test --test-timeout=60000 tests/sync_postgres.integration.js"
+    "test:sync-postgres": "node --test --test-timeout=60000 tests/sync_postgres.integration.js",
+    "test:ai-postgres": "node --test --test-timeout=60000 tests/ai_postgres.integration.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.114.0",

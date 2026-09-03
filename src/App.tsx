@@ -166,13 +166,8 @@ export default function App() {
     setIsQuickAddOpen(true);
   };
 
-  const handleCookRecipe = async (recipe: RecipeSuggestion) => {
-    await runMutation(async () => {
-      for (const name of recipe.ingredients_used) {
-        const match = foods.find(f => f.name.toLowerCase().includes(name.toLowerCase()));
-        if (match) await api.consumeFood(match.id, undefined, false);
-      }
-    });
+  const handleCookRecipe = async (recipe: RecipeSuggestion, idempotencyKey: string) => {
+    await runMutation(() => api.consumeBatch(recipe.food_ids, idempotencyKey, false));
   };
   const handleAddShoppingItem = async (name: string, quantity?: string) => {
     await runMutation(() => api.addShoppingItem({ room_code: roomCode, name, quantity }));

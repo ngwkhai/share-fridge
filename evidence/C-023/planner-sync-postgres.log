@@ -1,0 +1,15 @@
+
+> share-fridge@1.0.0 test:sync-postgres
+> node --test --test-timeout=60000 tests/sync_postgres.integration.js
+
+✔ revision triggers capture food/shopping changes and rollback atomically, preserving IDs/dates (32.489458ms)
+✔ nonowner room-claim RLS isolates revisions and rejects client writes/trigger execution (6.063916ms)
+✔ realtime readiness requires revision-only publication and refuses raw or all-table publishing (14.674667ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 110.825333

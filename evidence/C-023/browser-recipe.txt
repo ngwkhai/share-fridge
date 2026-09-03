@@ -1,0 +1,68 @@
+- banner:
+  - img "ShareFridge"
+  - heading "Kiểm thử C023" [level=1]
+  - status: Cập nhật định kỳ
+  - 'button "C020 Browser Audit #644780"':
+    - generic: C020 Browser Audit
+    - generic: "#644780"
+  - button "Cài đặt phòng & tài khoản":
+  - button "Thông báo":
+  - button "Làm mới":
+- main:
+  - button "Tất cả 1":
+    - generic: Tất cả
+    - generic: "1"
+  - button "Nấu gấp 0":
+    - generic: Nấu gấp
+    - generic: "0"
+  - button "Ngăn đông 1":
+    - generic: Ngăn đông
+    - generic: "1"
+  - button "Cần mua 0":
+    - generic: Cần mua
+    - generic: "0"
+  - textbox "Tìm nhanh trong tủ..."
+  - button "Tất cả"
+  - button "⚠️ Nấu gấp"
+  - button "❄️ Ngăn đông"
+  - button "🥩 Ngăn mát"
+  - button "🥬 Hộc rau"
+  - button "🥚 Cánh tủ"
+  - generic: ❄️
+  - generic: thịt ba chỉ
+  - generic: (0.5 kg)
+  - generic: ❄️ Ngăn đông
+  - text: Hộp xanh
+  - generic: 7 ngày
+  - generic: Kiểm thử C023
+  - button:
+  - button "Đã nấu":
+    - generic: Đã nấu
+- button "Tủ lạnh":
+  - generic: Tủ lạnh
+- button "Nấu gì?" [active]:
+  - generic: Nấu gì?
+- button:
+- button:
+- button "Đi chợ":
+  - generic: Đi chợ
+- button "Đã dùng":
+  - generic: Đã dùng
+- dialog "Gợi ý nấu ăn hôm nay":
+  - heading "Gợi ý nấu ăn hôm nay" [level=3]
+  - button "Đóng gợi ý nấu ăn":
+  - paragraph: Gợi ý cơ bản, chưa có kết quả từ Gemini. Hãy kiểm tra nguyên liệu trước khi nấu.
+  - heading "Thịt rang" [level=4]
+  - text: 20 phút
+  - paragraph: Có trong tủ
+  - text: thịt ba chỉ
+  - paragraph: Cần chuẩn bị thêm
+  - paragraph: Hành khô, Nước mắm, Đường
+  - list:
+    - listitem: Thái thịt thành miếng vừa ăn.
+    - listitem: Rang thịt đến khi chín, thêm hành khô và nêm nước mắm, đường.
+  - paragraph: Xác nhận sẽ đánh dấu đã dùng toàn bộ 1 món đồ bên trên.
+  - button "Đã nấu món này":
+    - generic: Đã nấu món này
+  - button "Lấy gợi ý mới":
+    - text: Lấy gợi ý mới

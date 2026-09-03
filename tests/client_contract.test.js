@@ -191,6 +191,26 @@ test('planned session renewal is authenticated and explicitly unavailable withou
   assert.deepEqual(after,before,'the placeholder must not alter or renew the existing session');
 });
 
+test('actual recipe client consumes exact IDs atomically and retries the same operation', async () => {
+  const firstLot = await api.addFood({ room_code:first.room.code,name:'Trứng gà',compartment:'DOOR',shelf_life_days:3 });
+  const secondLot = await api.addFood({ room_code:first.room.code,name:'Trứng gà',compartment:'DOOR',shelf_life_days:3 });
+  const suggestions = await api.suggestRecipes(first.room.code);
+  validateSchema('RecipeResult', suggestions);
+  assert.equal(suggestions.source, 'heuristic');
+  const selected = suggestions.suggestions.find(recipe => recipe.food_ids.includes(firstLot.id));
+  assert.ok(selected); assert.ok(selected.food_ids.includes(secondLot.id));
+  const key = crypto.randomUUID();
+  const result = await api.consumeBatch([secondLot.id, firstLot.id], key, true);
+  validateSchema('ConsumeBatchResult', result);
+  assert.deepEqual(result.items.map(item => item.id).sort(), [firstLot.id,secondLot.id].sort());
+  assert.deepEqual(await api.consumeBatch([firstLot.id,secondLot.id], key, true),result);
+  await assert.rejects(() => api.consumeBatch([firstLot.id], key, true), fail(409,'IDEMPOTENCY_CONFLICT'));
+  const remaining = await api.addFood({ room_code:first.room.code,name:'Untouched',compartment:'DOOR',shelf_life_days:3 });
+  await assert.rejects(() => api.consumeBatch([remaining.id,firstLot.id], crypto.randomUUID(), false), fail(409,'FOOD_UNAVAILABLE'));
+  assert.ok((await api.getFoods(first.room.code)).items.some(item => item.id === remaining.id));
+  for (const ids of [[],[remaining.id,remaining.id],Array.from({length:51},(_,i)=>`id-${i}`)]) assert.equal((await raw('/api/foods/consume-batch','POST',{food_ids:ids,idempotency_key:crypto.randomUUID()})).status,400);
+});
+
 test('all actual client HTTP responses match the corresponding runtime operation schema',()=>{
   for(const result of seen.filter(item=>!item.fault)) {
     const path=new URL(result.path,base).pathname;
@@ -203,7 +223,7 @@ test('all actual client HTTP responses match the corresponding runtime operation
 });
 
 test('future integrations expose explicit unavailable responses, config works without a database',async()=>{
-  for(const [path,method] of [['/api/auth/google','POST'],['/api/foods/consume-batch','POST'],['/api/realtime-token','GET'],['/api/notifications/config','GET'],['/api/notifications/subscribe','DELETE'],['/api/cron/expiry','GET'],['/api/photos','POST'],['/api/photos','DELETE']]) {
+  for(const [path,method] of [['/api/auth/google','POST'],['/api/realtime-token','GET'],['/api/notifications/config','GET'],['/api/notifications/subscribe','DELETE'],['/api/cron/expiry','GET'],['/api/photos','POST'],['/api/photos','DELETE']]) {
     const result=await raw(path,method,method==='GET'?undefined:{});assert.equal(result.status,503,`${method} ${path}`);validateSchema('Error',result.body);
   }
   let status,body;

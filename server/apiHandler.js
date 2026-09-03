@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { foodDto, subscriptionDto, text, boolean, compartment, fields, invalid } from './validation.js';
+import { foodDto, subscriptionDto, consumeBatchDto, text, boolean, compartment, fields, invalid } from './validation.js';
 import crypto from 'node:crypto';
 import { HttpError, readJsonBody, sendError } from './http.js';
 import path from 'path';
@@ -336,11 +336,10 @@ async function dispatchApiRequest(req, res, repository, integrations) {
 
   // 5. AI Parse Voice
   if (pathname === '/api/ai/parse-voice' && method === 'POST') {
-    const customApiKey = req.headers['x-gemini-key'] || '';
     const data = await parseJsonBody();
     fields(data, ['transcript']);
     const transcript = text(data.transcript, 'transcript', 2000);
-    const result = await parseVoiceWithGemini(transcript, customApiKey);
+    const result = await parseVoiceWithGemini(transcript);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(result));
     return true;
@@ -348,7 +347,6 @@ async function dispatchApiRequest(req, res, repository, integrations) {
 
   // 6. AI Suggest Recipes
   if (pathname === '/api/ai/suggest-recipes' && method === 'POST') {
-    const customApiKey = req.headers['x-gemini-key'] || '';
     const data = await parseJsonBody();
     fields(data, ['room_code','preference']);
     const room_code = data.room_code;
@@ -362,12 +360,20 @@ async function dispatchApiRequest(req, res, repository, integrations) {
       return { ...f, days_remaining, status };
     });
 
-    const suggestions = await suggestRecipesWithGemini(enrichedFoods, preference, customApiKey);
+    const result = await suggestRecipesWithGemini(enrichedFoods, preference);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
-      suggestions,
+      ...result,
       generated_at: new Date().toISOString()
     }));
+    return true;
+  }
+
+  if (pathname === '/api/foods/consume-batch' && method === 'POST') {
+    const data = consumeBatchDto(await parseJsonBody());
+    const result = await db.consumeBatch(data.food_ids, session.room_code, session.nickname, data.add_to_shopping_list, data.idempotency_key);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ...result, items: result.items.map(publicFood) }));
     return true;
   }
 
@@ -434,7 +440,7 @@ async function dispatchApiRequest(req, res, repository, integrations) {
     return true;
   }
 
-  if ((pathname === '/api/foods/consume-batch' && method === 'POST') || (pathname === '/api/notifications/config' && method === 'GET') || (pathname === '/api/notifications/subscribe' && method === 'DELETE') || (pathname === '/api/photos' && ['POST','DELETE'].includes(method))) throw new HttpError(503, 'SERVICE_UNAVAILABLE', 'This integration is not available yet.');
+  if ((pathname === '/api/notifications/config' && method === 'GET') || (pathname === '/api/notifications/subscribe' && method === 'DELETE') || (pathname === '/api/photos' && ['POST','DELETE'].includes(method))) throw new HttpError(503, 'SERVICE_UNAVAILABLE', 'This integration is not available yet.');
 
   return false;
 }
