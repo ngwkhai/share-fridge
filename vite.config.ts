@@ -43,6 +43,11 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
+      workbox: {
+        // Adds the C024 push/notificationclick handlers to the active generated
+        // service worker; generateSW alone never runs custom listener code.
+        importScripts: ['sw-push.js']
+      },
       manifest: {
         name: 'ShareFridge - Quản lý tủ lạnh phòng trọ',
         short_name: 'ShareFridge',

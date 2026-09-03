@@ -26,6 +26,12 @@
       ]
     }
   ],
+  "crons": [
+    {
+      "path": "/api/cron/expiry",
+      "schedule": "30 9 * * *"
+    }
+  ],
   "rewrites": [
     {
       "source": "/healthz",

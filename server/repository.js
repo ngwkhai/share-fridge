@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { Pool } from 'pg';
 import { HttpError } from './http.js';
+import { createPushRepository, createMemoryPushRepository } from './pushRepository.js';
 
 const REQUIRED_MIGRATION = '001_durable_repository';
 const isUuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -192,13 +193,15 @@ export function createMemoryRepository(seed = {}) {
       });
     },
     async listSubscriptions(code) { assertTest(); return [...subscribers.values()].filter(item => item.room_code === code).map(item => structuredClone(item)); },
+    ...createMemoryPushRepository(subscribers),
   };
 }
 
-async function transaction(pool, operation) {
+async function transaction(pool, operation, pushActor = null) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    await client.query("select set_config('sharefridge.push_actor',$1,true)", [pushActor || '']);
     const result = await operation(client);
     await client.query('COMMIT');
     return result;
@@ -286,23 +289,27 @@ export function createPostgresRepository({ connectionString = process.env.DATABA
       return row;
     },
     async listFoods(code) { return (await query('select * from public.foods where room_code=$1 order by added_date,id', [code])).rows.map(normalizeFood); },
-    async createFood(food) {
-      const row = (await query(`insert into public.foods(id,room_code,name,quantity,compartment,container_tag,added_date,expiry_date,status,photo_url,storage_path,notes,created_by,consumed_by,consumed_at)
+    async createFood(food, pushActor = null) {
+      return transaction(pool, async client => {
+      const row = (await client.query(`insert into public.foods(id,room_code,name,quantity,compartment,container_tag,added_date,expiry_date,status,photo_url,storage_path,notes,created_by,consumed_by,consumed_at)
         values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) returning *`,
       [food.id,food.room_code,food.name,food.quantity,food.compartment,food.container_tag,food.added_date,food.expiry_date,food.status,food.photo_url,food.storage_path||null,food.notes,food.created_by,food.consumed_by||null,food.consumed_at||null])).rows[0];
       return normalizeFood(row);
+      }, pushActor);
     },
     async getFood(id, code) { if (!isUuid(id)) return null; return normalizeFood((await query('select * from public.foods where id=$1 and room_code=$2', [id,code])).rows[0]); },
-    async updateFood(id, code, changes) {
+    async updateFood(id, code, changes, pushActor = null) {
       if (!isUuid(id)) return null;
       const allowed = ['name','quantity','compartment','container_tag','expiry_date','notes','photo_url','storage_path'];
       const fields = Object.keys(changes).filter(field => allowed.includes(field));
       if (!fields.length) return this.getFood(id, code);
       const assignments = fields.map((field,index) => `${field}=$${index+3}`).join(',');
-      const row = (await query(`update public.foods set ${assignments} where id=$1 and room_code=$2 returning *`, [id,code,...fields.map(field => changes[field])])).rows[0];
+      return transaction(pool, async client => {
+      const row = (await client.query(`update public.foods set ${assignments} where id=$1 and room_code=$2 returning *`, [id,code,...fields.map(field => changes[field])])).rows[0];
       return normalizeFood(row);
+      }, pushActor);
     },
-    async consumeFood(id, code, actor, addToShopping) {
+    async consumeFood(id, code, actor, addToShopping, pushActor = null) {
       if (!isUuid(id)) return null;
       return transaction(pool, async client => {
         const row = (await client.query('select * from public.foods where id=$1 and room_code=$2 for update', [id,code])).rows[0];
@@ -313,9 +320,9 @@ export function createPostgresRepository({ connectionString = process.env.DATABA
           return normalizeFood(consumed);
         }
         return normalizeFood(row);
-      });
+      }, pushActor);
     },
-    async consumeBatch(ids, code, actor, addToShopping, key) {
+    async consumeBatch(ids, code, actor, addToShopping, key, pushActor = null) {
       const sorted = [...ids].sort(), hash = batchHash(ids, addToShopping);
       return transaction(pool, async client => {
         await client.query("set local lock_timeout='2s'; set local statement_timeout='5s'");
@@ -335,16 +342,16 @@ export function createPostgresRepository({ connectionString = process.env.DATABA
         const response = { items: result.rows.map(normalizeFood).sort((a, b) => a.id.localeCompare(b.id)), consumed_at: now.toISOString() };
         await client.query("insert into sharefridge_private.idempotency_keys(room_code,operation,key,request_hash,response) values($1,'consume-batch',$2,$3,$4)", [code, key, hash, JSON.stringify(response)]);
         return response;
-      }).catch(error => {
+      }, pushActor).catch(error => {
         if (['55P03','57014','40P01'].includes(error.code)) throw new HttpError(503, 'BATCH_BUSY', 'Tủ đang có thay đổi khác. Chưa lưu lần nấu này; hãy thử lại.');
         throw error;
       });
     },
-    async deleteFood(id, code) { if (!isUuid(id)) return false; return (await query('delete from public.foods where id=$1 and room_code=$2', [id,code])).rowCount > 0; },
+    async deleteFood(id, code, pushActor = null) { if (!isUuid(id)) return false; return transaction(pool, async client => (await client.query('delete from public.foods where id=$1 and room_code=$2', [id,code])).rowCount > 0, pushActor); },
     async listShopping(code) { return (await query('select * from public.shopping_items where room_code=$1 order by created_at,id', [code])).rows.map(normalizeShopping); },
-    async createShopping(item) { return normalizeShopping((await query(`insert into public.shopping_items(id,room_code,name,quantity,is_bought,created_at) values($1,$2,$3,$4,$5,$6) returning *`, [item.id,item.room_code,item.name,item.quantity,item.is_bought,item.created_at])).rows[0]); },
+    async createShopping(item, pushActor = null) { return transaction(pool, async client => normalizeShopping((await client.query(`insert into public.shopping_items(id,room_code,name,quantity,is_bought,created_at) values($1,$2,$3,$4,$5,$6) returning *`, [item.id,item.room_code,item.name,item.quantity,item.is_bought,item.created_at])).rows[0]), pushActor); },
     async getShopping(id, code) { if (!isUuid(id)) return null; return normalizeShopping((await query('select * from public.shopping_items where id=$1 and room_code=$2', [id,code])).rows[0]); },
-    async toggleShopping(id, code, bought, moveToFridge, compartment, actor) {
+    async toggleShopping(id, code, bought, moveToFridge, compartment, actor, pushActor = null) {
       if (!isUuid(id)) return null;
       return transaction(pool, async client => {
         const item = (await client.query('select * from public.shopping_items where id=$1 and room_code=$2 for update', [id,code])).rows[0];
@@ -362,9 +369,9 @@ export function createPostgresRepository({ connectionString = process.env.DATABA
           }
         }
         return normalizeShopping(saved);
-      });
+      }, pushActor);
     },
-    async deleteShopping(id, code) { if (!isUuid(id)) return false; return (await query('delete from public.shopping_items where id=$1 and room_code=$2', [id,code])).rowCount > 0; },
+    async deleteShopping(id, code, pushActor = null) { if (!isUuid(id)) return false; return transaction(pool, async client => (await client.query('delete from public.shopping_items where id=$1 and room_code=$2', [id,code])).rowCount > 0, pushActor); },
     async saveSubscription(code, subscription, deviceName) {
       return transaction(pool, async client => {
         await client.query('select pg_advisory_xact_lock(hashtextextended($1,0))', [`${code}:${subscription.endpoint}`]);
@@ -376,6 +383,7 @@ export function createPostgresRepository({ connectionString = process.env.DATABA
       });
     },
     async listSubscriptions(code) { return (await query('select * from public.push_subscriptions where room_code=$1 order by created_at,id', [code])).rows.map(row => ({ ...row, id: String(row.id), created_at: iso(row.created_at) })); },
+    ...createPushRepository(pool),
   };
 }
 

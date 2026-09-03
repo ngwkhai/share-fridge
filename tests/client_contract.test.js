@@ -32,6 +32,16 @@ const raw = async (path,method='GET',body,token=first?.token) => {
   return { status:response.status, body:await response.json() };
 };
 const fail = (status,code) => error => error instanceof ApiError && error.status === status && error.code === code;
+const withVapid = async operation => {
+  const ecdh=crypto.createECDH('prime256v1');ecdh.generateKeys();
+  const priv=ecdh.getPrivateKey();
+  const saved={VAPID_PUBLIC_KEY:process.env.VAPID_PUBLIC_KEY,VAPID_PRIVATE_KEY:process.env.VAPID_PRIVATE_KEY,VAPID_SUBJECT:process.env.VAPID_SUBJECT};
+  process.env.VAPID_PUBLIC_KEY=ecdh.getPublicKey().toString('base64url');
+  process.env.VAPID_PRIVATE_KEY=Buffer.concat([Buffer.alloc(Math.max(0,32-priv.length)),priv]).subarray(-32).toString('base64url');
+  process.env.VAPID_SUBJECT='mailto:test@example.com';
+  try { return await operation(); }
+  finally { for(const key of Object.keys(saved)) if(saved[key]===undefined) delete process.env[key]; else process.env[key]=saved[key]; }
+};
 
 test.before(async () => {
   globalThis.localStorage = { getItem:key=>store.get(key)||null, setItem:(key,value)=>store.set(key,value), removeItem:key=>store.delete(key) };
@@ -140,15 +150,30 @@ test('malformed success, non-JSON error and offline connection never return succ
   } finally {fault=null;}
 });
 
-test('actual notification client uses documented route; malformed subscriptions are rejected',async()=>{
-  const valid={endpoint:'https://push.example.test/c020',keys:{auth:'auth',p256dh:'key'}};
+test('actual notification client uses documented route; malformed/foreign/off-curve subscriptions are rejected',async()=>withVapid(async()=>{
+  const p256dh=crypto.createECDH('prime256v1');p256dh.generateKeys();
+  const validKeys={auth:crypto.randomBytes(16).toString('base64url'),p256dh:p256dh.getPublicKey().toString('base64url')};
+  const valid={endpoint:'https://fcm.googleapis.com/fcm/send/abc123',keys:validKeys};
   const result=await api.subscribePush(valid,first.room.code,'Test');
   validateSchema('SubscriptionResult',result);
   assert.ok(seen.some(r=>r.path==='/api/notifications/subscribe'&&r.method==='POST'&&r.status===200));
-  for(const subscription of [null,[],{}, {...valid,endpoint:5},{...valid,endpoint:'javascript:alert(1)'},{...valid,keys:[]},{...valid,keys:{auth:4,p256dh:'key'}},{...valid,keys:{auth:'ok'}}]) await assert.rejects(()=>api.subscribePush(subscription,first.room.code),fail(400,'INVALID_INPUT'));
+  for(const subscription of [
+    null,[],{},
+    {...valid,endpoint:5},
+    {...valid,endpoint:'javascript:alert(1)'},
+    {...valid,keys:[]},
+    {...valid,keys:{auth:4,p256dh:validKeys.p256dh}},
+    {...valid,keys:{auth:validKeys.auth}},
+  ]) await assert.rejects(()=>api.subscribePush(subscription,first.room.code),fail(400,'INVALID_INPUT'));
   await assert.rejects(()=>api.subscribePush(valid,first.room.code,'x'.repeat(101)),fail(400,'INVALID_INPUT'));
+  const offCurve=Buffer.from(validKeys.p256dh,'base64url');offCurve[1]^=0xff;
+  for(const subscription of [
+    {...valid,endpoint:'https://push.example.test/not-a-known-provider'},
+    {...valid,keys:{...validKeys,p256dh:offCurve.toString('base64url')}},
+    {...valid,keys:{...validKeys,p256dh:validKeys.p256dh.slice(0,-2)}},
+  ]) await assert.rejects(()=>api.subscribePush(subscription,first.room.code),fail(400,'INVALID_SUBSCRIPTION'));
   assert.equal((await db.listSubscriptions(first.room.code)).length,1);
-});
+}));
 
 test('every planning method/path exists in runtime spec; all schemas compile and required shapes are present',async()=>{
   const contract=fs.readFileSync(new URL('../flow/05-contract.md',import.meta.url),'utf8');
@@ -223,10 +248,18 @@ test('all actual client HTTP responses match the corresponding runtime operation
 });
 
 test('future integrations expose explicit unavailable responses, config works without a database',async()=>{
-  for(const [path,method] of [['/api/auth/google','POST'],['/api/realtime-token','GET'],['/api/notifications/config','GET'],['/api/notifications/subscribe','DELETE'],['/api/cron/expiry','GET'],['/api/photos','POST'],['/api/photos','DELETE']]) {
+  for(const [path,method] of [['/api/auth/google','POST'],['/api/realtime-token','GET'],['/api/cron/expiry','GET'],['/api/photos','POST'],['/api/photos','DELETE']]) {
     const result=await raw(path,method,method==='GET'?undefined:{});assert.equal(result.status,503,`${method} ${path}`);validateSchema('Error',result.body);
   }
   let status,body;
   await createApiHandler()({url:'/api/config',method:'GET',headers:{}},{writeHead:value=>status=value,end:value=>body=JSON.parse(value)});
   assert.equal(status,200);validateSchema('PublicConfig',body);assert.deepEqual(body,{google_client_id:null,capabilities:{google:false,push:false,photos:false,realtime:false}});
+});
+
+test('C024 push config/unsubscribe are implemented, not future stubs: no VAPID means disabled-but-served',async()=>{
+  const config=await raw('/api/notifications/config');
+  assert.equal(config.status,200);validateSchema('NotificationConfig',config.body);
+  assert.deepEqual(config.body,{enabled:false,public_key:null});
+  const missing=await raw('/api/notifications/subscribe','DELETE',{});
+  assert.equal(missing.status,400);assert.equal(missing.body.code,'INVALID_INPUT');
 });

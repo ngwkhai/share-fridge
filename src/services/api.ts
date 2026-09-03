@@ -161,14 +161,28 @@ const getToken = () => {
   catch { return ''; }
 };
 
-async function request<T>(path: string, validate: Guard<T>, options: { method?: string; body?: unknown; public?: boolean } = {}): Promise<T> {
+export interface PushDevice { room_code: string; subscriber_id: string; endpoint: string; owner: string }
+export const pushDevice = {
+  get(): PushDevice | null {
+    try { const value=JSON.parse(localStorage.getItem('sharefridge_push_device') || 'null');
+      return object(value)&&roomCode(value.room_code)&&nonempty(value.subscriber_id)&&nonempty(value.endpoint)&&nonempty(value.owner) ? value as unknown as PushDevice : null;
+    } catch { return null; }
+  },
+  save(value: PushDevice) { localStorage.setItem('sharefridge_push_device',JSON.stringify(value)); },
+  clear(owner?: string) { if (!owner || this.get()?.owner===owner) localStorage.removeItem('sharefridge_push_device'); }
+};
+
+async function request<T>(path: string, validate: Guard<T>, options: { method?: string; body?: unknown; public?: boolean; token?: string; timeoutMs?: number } = {}): Promise<T> {
   if (options.method && options.method !== 'GET' && typeof navigator !== 'undefined' && navigator.onLine === false) throw new ApiError('Đang ngoại tuyến. Kết nối mạng để lưu thay đổi.', 0, 'OFFLINE', path);
   let response: Response;
+  const device=pushDevice.get(), current=sessionCache.get();
+  const actor=device&&device.room_code===current?.code&&/\/api\/(foods|shopping-items)(\/|$)/.test(path)&&options.method&&options.method!=='GET' ? device.subscriber_id : null;
   try {
     response = await fetch(path, {
       method: options.method || 'GET',
       cache: 'no-store',
-      headers: { ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(options.public ? {} : { Authorization: `Bearer ${getToken()}` }) },
+      ...(options.timeoutMs ? {signal:AbortSignal.timeout(options.timeoutMs)} : {}),
+      headers: { ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(options.public ? {} : { Authorization: `Bearer ${options.token ?? getToken()}` }), ...(actor ? {'X-Push-Subscriber-Id':actor} : {}) },
       body: options.body === undefined ? undefined : JSON.stringify(options.body)
     });
   } catch {
@@ -189,6 +203,7 @@ async function request<T>(path: string, validate: Guard<T>, options: { method?: 
 
 export const api = {
   sessionCache,
+  pushDevice,
   foodCache,
   async getConfig(): Promise<PublicConfig> {
     return request('/api/config', (x): x is PublicConfig => object(x) && (x.google_client_id === null || nonempty(x.google_client_id)) && object(x.capabilities) && ['google','push','photos','realtime'].every(key => typeof (x.capabilities as Record<string,unknown>)[key] === 'boolean'), { public: true });
@@ -269,8 +284,14 @@ export const api = {
   async suggestRecipes(code: string, preference?: string) {
     return request('/api/ai/suggest-recipes', (x): x is { suggestions: RecipeSuggestion[]; generated_at: string; source: string } => object(x) && Array.isArray(x.suggestions) && x.suggestions.every(recipe) && date(x.generated_at) && source(x.source), { method: 'POST', body: { room_code: code, preference } });
   },
-  async subscribePush(subscription: PushSubscriptionJSON, roomCode: string, deviceName?: string) {
-    return request('/api/notifications/subscribe', (x): x is { success: true; subscriber_id: string } => object(x) && x.success === true && nonempty(x.subscriber_id), { method: 'POST', body: { room_code: roomCode, subscription, device_name: deviceName } });
+  async subscribePush(subscription: PushSubscriptionJSON, roomCode: string, deviceName?: string, token?: string) {
+    return request('/api/notifications/subscribe', (x): x is { success: true; subscriber_id: string } => object(x) && x.success === true && nonempty(x.subscriber_id), { method: 'POST', body: { room_code: roomCode, subscription, device_name: deviceName }, token, timeoutMs:8000 });
+  },
+  async getPushConfig(token?: string) {
+    return request('/api/notifications/config',(x): x is {enabled:boolean;public_key:string|null} => object(x)&&typeof x.enabled==='boolean'&&(x.enabled ? nonempty(x.public_key) : x.public_key===null),{token,timeoutMs:8000});
+  },
+  async unsubscribePush(endpoint:string,token?:string) {
+    return request('/api/notifications/subscribe',(x): x is {success:true} => object(x)&&x.success===true,{method:'DELETE',body:{endpoint},token,timeoutMs:8000});
   },
   async subscribeNotifications(roomCode: string, subscription: PushSubscriptionJSON, deviceName?: string) {
     return this.subscribePush(subscription, roomCode, deviceName);

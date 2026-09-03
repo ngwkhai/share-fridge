@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { pushService, authorizeCron } from './push.js';
 import { foodDto, subscriptionDto, consumeBatchDto, text, boolean, compartment, fields, invalid } from './validation.js';
 import crypto from 'node:crypto';
 import { HttpError, readJsonBody, sendError } from './http.js';
@@ -103,14 +104,18 @@ async function dispatchApiRequest(req, res, repository, integrations) {
     return true;
   }
   if (pathname === '/api/config' && method === 'GET') {
-    let realtime = false;
-    try { realtime = await realtimeAvailable(repository || (defaultRepository ??= createConfiguredRepository())); } catch {}
+    let realtime = false, push = false;
+    try { const repo=repository || (defaultRepository ??= createConfiguredRepository()); realtime = await realtimeAvailable(repo); push = (await (integrations.push || pushService).config(repo)).enabled; } catch {}
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ google_client_id: googleClientId(), capabilities: { google: !!googleClientId(), push: false, photos: false, realtime } }));
+    res.end(JSON.stringify({ google_client_id: googleClientId(), capabilities: { google: !!googleClientId(), push, photos: false, realtime } }));
     return true;
   }
   if (pathname === '/api/auth/google' && method === 'POST' && !googleClientId()) throw new HttpError(503, 'GOOGLE_UNAVAILABLE', 'Đăng nhập Google hiện chưa khả dụng. Hãy dùng tên và mã phòng.');
-  if (pathname === '/api/cron/expiry' && method === 'GET') throw new HttpError(503, 'SERVICE_UNAVAILABLE', 'This integration is not available yet.');
+  if (pathname === '/api/cron/expiry' && method === 'GET') {
+    authorizeCron(req.headers.authorization);
+    const result=await (integrations.push || pushService).cron(repository || (defaultRepository ??= createConfiguredRepository()));
+    res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(result));return true;
+  }
   const needsDatabase = pathname !== '/healthz' && pathname !== '/api/openapi.json' && pathname.startsWith('/api/');
   let db = repository;
   const resolveDb = () => db ??= defaultRepository ??= createConfiguredRepository();
@@ -125,6 +130,13 @@ async function dispatchApiRequest(req, res, repository, integrations) {
     for (const code of url.searchParams.getAll('room_code')) assertRoomAccess(code, session);
   }
   if (needsDatabase) db = resolveDb();
+  const pushActor = req.headers['x-push-subscriber-id'] || null;
+  if (pushActor !== null && (typeof pushActor !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(pushActor))) invalid('Invalid device identifier.');
+  const dispatchChanges = async () => {
+    // The source transaction has committed. Never turn notification failure into
+    // a failed create response that could cause a duplicate user retry.
+    try { const service=integrations.push || pushService; if ((await service.config(db)).enabled) await service.dispatch(db,session.room_code); } catch {}
+  };
   // C026 will renew the nickname while retaining the existing room/profile/expiry.
   // Reserve the authenticated route now; do not report a session update before it exists.
   if (pathname === '/api/auth/session' && method === 'PATCH') throw new HttpError(503, 'SERVICE_UNAVAILABLE', 'Session updates are not available yet.');
@@ -297,7 +309,8 @@ async function dispatchApiRequest(req, res, repository, integrations) {
       created_by: session.nickname
     };
 
-    await db.createFood(food);
+    await db.createFood(food, pushActor);
+    await dispatchChanges();
     res.writeHead(201, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(food));
     return true;
@@ -309,7 +322,8 @@ async function dispatchApiRequest(req, res, repository, integrations) {
     const data = await parseJsonBody();
     fields(data, ['add_to_shopping_list','consumed_by']);
     if (data.consumed_by !== undefined && typeof data.consumed_by !== 'string') invalid('consumed_by must be a string.');
-    const food = publicFood(requireItem(await db.consumeFood(id, session.room_code, session.nickname, boolean(data.add_to_shopping_list, 'add_to_shopping_list', false))));
+    const food = publicFood(requireItem(await db.consumeFood(id, session.room_code, session.nickname, boolean(data.add_to_shopping_list, 'add_to_shopping_list', false), pushActor)));
+    await dispatchChanges();
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(food));
@@ -319,7 +333,8 @@ async function dispatchApiRequest(req, res, repository, integrations) {
   const foodEditMatch = pathname.match(/^\/api\/foods\/([a-zA-Z0-9_-]+)$/);
   if (foodEditMatch && method === 'PATCH') {
     const data = foodDto(await parseJsonBody(), true);
-    const updated = publicFood(requireItem(await db.updateFood(foodEditMatch[1], session.room_code, data)));
+    const updated = publicFood(requireItem(await db.updateFood(foodEditMatch[1], session.room_code, data, pushActor)));
+    await dispatchChanges();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(updated));
     return true;
@@ -328,7 +343,8 @@ async function dispatchApiRequest(req, res, repository, integrations) {
   const foodDeleteMatch = pathname.match(/^\/api\/foods\/([a-zA-Z0-9_-]+)$/);
   if (foodDeleteMatch && method === 'DELETE') {
     const id = foodDeleteMatch[1];
-    requireItem(await db.deleteFood(id, session.room_code));
+    requireItem(await db.deleteFood(id, session.room_code, pushActor));
+    await dispatchChanges();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true, deleted_id: id }));
     return true;
@@ -371,7 +387,8 @@ async function dispatchApiRequest(req, res, repository, integrations) {
 
   if (pathname === '/api/foods/consume-batch' && method === 'POST') {
     const data = consumeBatchDto(await parseJsonBody());
-    const result = await db.consumeBatch(data.food_ids, session.room_code, session.nickname, data.add_to_shopping_list, data.idempotency_key);
+    const result = await db.consumeBatch(data.food_ids, session.room_code, session.nickname, data.add_to_shopping_list, data.idempotency_key, pushActor);
+    await dispatchChanges();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ...result, items: result.items.map(publicFood) }));
     return true;
@@ -398,7 +415,8 @@ async function dispatchApiRequest(req, res, repository, integrations) {
       is_bought: false,
       created_at: new Date().toISOString()
     };
-    await db.createShopping(item);
+    await db.createShopping(item, pushActor);
+    await dispatchChanges();
     res.writeHead(201, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(item));
     return true;
@@ -413,7 +431,8 @@ async function dispatchApiRequest(req, res, repository, integrations) {
     const move = boolean(data.move_to_fridge, 'move_to_fridge', false);
     if (move && !bought) invalid('Only bought items can move to the fridge.');
     const target = data.compartment === undefined ? 'FRIDGE_TOP' : compartment(data.compartment);
-    const item = publicShopping(requireItem(await db.toggleShopping(id, session.room_code, bought, move, target, session.nickname)));
+    const item = publicShopping(requireItem(await db.toggleShopping(id, session.room_code, bought, move, target, session.nickname, pushActor)));
+    await dispatchChanges();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(item));
     return true;
@@ -422,10 +441,22 @@ async function dispatchApiRequest(req, res, repository, integrations) {
   const shopDeleteMatch = pathname.match(/^\/api\/shopping-items\/([a-zA-Z0-9_-]+)$/);
   if (shopDeleteMatch && method === 'DELETE') {
     const id = shopDeleteMatch[1];
-    requireItem(await db.deleteShopping(id, session.room_code));
+    requireItem(await db.deleteShopping(id, session.room_code, pushActor));
+    await dispatchChanges();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true, deleted_id: id }));
     return true;
+  }
+
+  if (pathname === '/api/notifications/config' && method === 'GET') {
+    res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
+    res.end(JSON.stringify(await (integrations.push || pushService).config(db)));return true;
+  }
+  if (pathname === '/api/notifications/subscribe' && method === 'DELETE') {
+    const data=await parseJsonBody();fields(data,['endpoint']);
+    const endpoint=text(data.endpoint,'endpoint',8192);
+    await db.removeSubscription(session.room_code,endpoint);
+    res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({success:true}));return true;
   }
 
   // 8. Notifications Subscribe
@@ -433,6 +464,7 @@ async function dispatchApiRequest(req, res, repository, integrations) {
     const data = await parseJsonBody();
     assertRoomAccess(data.room_code, session);
     const validated = subscriptionDto(data);
+    if (!(await (integrations.push || pushService).config(db)).enabled) throw new HttpError(503,'PUSH_UNAVAILABLE','Thông báo hiện chưa khả dụng.');
     const subscription = await db.saveSubscription(session.room_code, validated.subscription, validated.device_name);
     const subscriber_id = subscription.id;
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -440,7 +472,7 @@ async function dispatchApiRequest(req, res, repository, integrations) {
     return true;
   }
 
-  if ((pathname === '/api/notifications/config' && method === 'GET') || (pathname === '/api/notifications/subscribe' && method === 'DELETE') || (pathname === '/api/photos' && ['POST','DELETE'].includes(method))) throw new HttpError(503, 'SERVICE_UNAVAILABLE', 'This integration is not available yet.');
+  if ((pathname === '/api/photos' && ['POST','DELETE'].includes(method))) throw new HttpError(503, 'SERVICE_UNAVAILABLE', 'This integration is not available yet.');
 
   return false;
 }

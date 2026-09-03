@@ -1,52 +1,23 @@
-import React, { useState } from 'react';
+import React, { useEffect, useSyncExternalStore } from 'react';
 import { Bell, Check, Smartphone } from 'lucide-react';
-import { api } from '../services/api';
+import { pushClient } from '../services/pushClient';
 
 interface NotificationModalProps {
   isOpen: boolean;
   onClose: () => void;
-  roomCode: string;
 }
 
 export const NotificationModal: React.FC<NotificationModalProps> = ({
   isOpen,
-  onClose,
-  roomCode
+  onClose
 }) => {
-  const [enabled, setEnabled] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
+  const state = useSyncExternalStore(pushClient.subscribe, pushClient.getSnapshot);
+
+  useEffect(() => {
+    if (isOpen) void pushClient.inspect();
+  }, [isOpen]);
 
   if (!isOpen) return null;
-
-  const handleEnablePush = async () => {
-    setLoading(true);
-    setMessage('');
-    try {
-      if (!('Notification' in window)) {
-        setMessage('Trình duyệt của bạn không hỗ trợ thông báo.');
-        return;
-      }
-
-      const permission = await Notification.requestPermission();
-      if (permission === 'granted') {
-        // Mock subscribe or real registration
-        await api.subscribeNotifications(roomCode, {
-          endpoint: 'local-browser-subscription',
-          keys: { auth: 'mock', p256dh: 'mock' }
-        }, navigator.userAgent.includes('iPhone') ? 'iPhone' : 'Android/Desktop');
-
-        setEnabled(true);
-        setMessage('Đã bật thông báo thành công! Bạn sẽ nhận thông báo nhắc lúc 16:30 hàng ngày.');
-      } else {
-        setMessage('Quyền thông báo bị từ chối.');
-      }
-    } catch {
-      setMessage('Lỗi kích hoạt thông báo.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
@@ -62,26 +33,35 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
           </p>
         </div>
 
-        {message && (
+        {state.message && (
           <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700">
-            {message}
+            {state.message}
           </div>
         )}
 
         <div className="space-y-2">
-          {!enabled ? (
+          {!state.enabled ? (
             <button
-              onClick={handleEnablePush}
-              disabled={loading}
+              onClick={() => void pushClient.enable()}
+              disabled={state.busy || !state.available}
               className="w-full py-3 bg-fresh-600 hover:bg-fresh-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm"
             >
               <Smartphone className="w-4 h-4" />
-              <span>{loading ? 'Đang kích hoạt...' : 'Bật thông báo lên màn hình'}</span>
+              <span>{state.busy ? 'Đang kích hoạt...' : 'Bật thông báo lên màn hình'}</span>
             </button>
           ) : (
-            <div className="flex items-center justify-center gap-1 text-fresh-600 text-xs font-bold py-2">
-              <Check className="w-4 h-4" />
-              <span>Đang hoạt động</span>
+            <div className="space-y-2">
+              <div className="flex items-center justify-center gap-1 text-fresh-600 text-xs font-bold py-2">
+                <Check className="w-4 h-4" />
+                <span>Đang hoạt động</span>
+              </div>
+              <button
+                onClick={() => void pushClient.disable()}
+                disabled={state.busy}
+                className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 font-semibold rounded-xl text-xs"
+              >
+                {state.busy ? 'Đang tắt...' : 'Tắt thông báo trên thiết bị này'}
+              </button>
             </div>
           )}
 

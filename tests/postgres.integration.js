@@ -13,6 +13,13 @@ if (!process.env.TEST_DATABASE_URL) throw new Error('TEST_DATABASE_URL is requir
 const pool = new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 5, connectionTimeoutMillis: 3000 });
 const repository = createPostgresRepository({ pool });
 const sessionSecret = crypto.randomBytes(48).toString('base64url');
+// C024: real endpoint host + EC key shape so subscriptionDto's crypto validation accepts
+// it; the worker injects a no-op push integration so this stays a persistence test and
+// never makes a live network call to a real push provider (see postgres-worker.js).
+const pushSubscriptionFixture = () => {
+  const p256dh = crypto.createECDH('prime256v1'); p256dh.generateKeys();
+  return { endpoint:'https://fcm.googleapis.com/fcm/send/'+crypto.randomUUID(), keys:{ auth:crypto.randomBytes(16).toString('base64url'), p256dh:p256dh.getPublicKey().toString('base64url') } };
+};
 const roleName = `c019_reader_${crypto.randomBytes(6).toString('hex')}`;
 const ownedCodes = [];
 const workers = [];
@@ -121,7 +128,7 @@ test('two independent API processes share created room, exact food timestamps, s
   assert.equal(read.status,200); assert.equal(read.data.items[0].id,food.id); assert.equal(read.data.items[0].added_date,food.added_date); assert.equal(read.data.items[0].expiry_date,food.expiry_date);
   const addedShop=await call(second,'/api/shopping-items',{method:'POST',token:first.session.token,body:{room_code:firstCode,name:'C019 milk',quantity:'1L'}});
   assert.equal(addedShop.status,201);shop=addedShop.data;
-  const subscription={endpoint:'https://push.example.test/c019-'+crypto.randomUUID(),keys:{auth:'fixture-auth',p256dh:'fixture-p256dh'}};
+  const subscription=pushSubscriptionFixture();
   const subscribed=await Promise.all([first,second].map(worker=>call(worker,'/api/notifications/subscribe',{method:'POST',token:first.session.token,body:{room_code:firstCode,subscription,device_name:'C019 fixture'}})));
   assert.deepEqual(subscribed.map(result=>result.status),[200,200]);
   assert.equal(subscribed[0].data.subscriber_id,subscribed[1].data.subscriber_id); subscriberId=subscribed[0].data.subscriber_id;

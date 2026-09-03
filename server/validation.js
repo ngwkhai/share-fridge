@@ -1,4 +1,5 @@
 import { HttpError } from './http.js';
+import { validatePushSubscription } from './push.js';
 
 export const compartments = ['FREEZER','FRIDGE_TOP','FRIDGE_BOTTOM','CRISPER','DOOR'];
 export function invalid(message) { throw new HttpError(400, 'INVALID_INPUT', message); }
@@ -55,7 +56,7 @@ export function subscriptionDto(data) {
   if (!keys || typeof keys !== 'object' || Array.isArray(keys)) invalid('subscription.keys must be an object.');
   const auth = text(keys.auth, 'subscription.keys.auth', 4096);
   const p256dh = text(keys.p256dh, 'subscription.keys.p256dh', 4096);
-  return { subscription: { endpoint, keys: { auth, p256dh } }, device_name: text(data.device_name, 'device_name', 100, { optional: true, empty: true }) };
+  return { subscription: validatePushSubscription({ endpoint, keys: { auth, p256dh } }), device_name: text(data.device_name, 'device_name', 100, { optional: true, empty: true }) };
 }
 
 export function consumeBatchDto(data) {

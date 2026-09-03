@@ -14,6 +14,7 @@ import { NotificationModal } from './components/NotificationModal';
 import { SettingsModal } from './components/SettingsModal';
 import { GoogleAuthButton } from './components/GoogleAuthButton';
 import { signOutGoogle } from './services/googleIdentity';
+import { pushClient } from './services/pushClient';
 import { useRoomSync } from './hooks/useRoomSync';
 import { PlusCircle, Search, Lock, User, ArrowRight } from 'lucide-react';
 
@@ -75,6 +76,8 @@ export default function App() {
   useEffect(() => {
     setIsQuickAddOpen(false); setIsVoiceOpen(false); setIsRecipeOpen(false); setIsNotifOpen(false); setIsSettingsOpen(false); setVoiceDraftData(undefined); setError('');
   }, [initialCache?.token]);
+
+  useEffect(() => { pushClient.setSession(initialCache); }, [initialCache?.token]);
 
   const handleCreateRoom = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -516,7 +519,6 @@ export default function App() {
       <NotificationModal
         isOpen={isNotifOpen}
         onClose={() => setIsNotifOpen(false)}
-        roomCode={roomCode}
       />
 
       {room && (
