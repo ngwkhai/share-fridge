@@ -1,0 +1,4 @@
+{"path":"/readyz","status":503,"body":{"status":"unavailable","database":"unavailable"}}
+{"path":"/healthz","status":200,"body":{"status":"ok","version":"1.0.0","timestamp":"2026-09-03T01:26:47.209Z"}}
+{"path":"/api/openapi.json","status":200,"body":{"readyz_get_present":true,"unavailable_response_present":true}}
+{"deployment":"https://sharefridge-owxwzabn4-khaindhrt-9606s-projects.vercel.app","commit":"3ba9575","tested_at":"2026-09-03T01:26:50.145Z","result":"negative readiness gate passed; hosted persistence remains blocked on DATABASE_URL"}
