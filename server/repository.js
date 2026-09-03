@@ -1,0 +1,264 @@
+import crypto from 'node:crypto';
+import { Pool } from 'pg';
+import { HttpError } from './http.js';
+
+const REQUIRED_MIGRATION = '001_durable_repository';
+const isUuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
+function iso(value) {
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+function normalizeRoom(row) {
+  return row ? { ...row, id: String(row.id), created_at: iso(row.created_at) } : null;
+}
+
+function normalizeFood(row) {
+  return row ? {
+    ...row,
+    id: String(row.id),
+    added_date: iso(row.added_date),
+    expiry_date: iso(row.expiry_date),
+    consumed_at: row.consumed_at ? iso(row.consumed_at) : null,
+    days_remaining: Math.ceil((new Date(row.expiry_date).getTime() - Date.now()) / 86400000),
+  } : null;
+}
+
+function normalizeShopping(row) {
+  return row ? { ...row, id: String(row.id), created_at: iso(row.created_at) } : null;
+}
+
+function productionGuard() {
+  if (process.env.NODE_ENV === 'production') {
+    throw new HttpError(503, 'DATABASE_UNAVAILABLE', 'Database service is not configured.');
+  }
+}
+
+export function createMemoryRepository(seed = {}) {
+  productionGuard();
+  const rooms = new Map((seed.rooms || []).map(item => [item.code, structuredClone(item)]));
+  const foods = new Map((seed.foods || []).map(item => [item.id, structuredClone(item)]));
+  const shoppingItems = new Map((seed.shoppingItems || []).map(item => [item.id, structuredClone(item)]));
+  const subscribers = new Map((seed.subscribers || []).map(item => [item.id, structuredClone(item)]));
+  const limits = new Map();
+  let serial = Promise.resolve();
+  const locked = operation => {
+    const next = serial.then(operation, operation);
+    serial = next.catch(() => {});
+    return next;
+  };
+  const assertTest = () => productionGuard();
+  return {
+    kind: 'test', rooms, foods, shoppingItems, subscribers,
+    async ready() { assertTest(); return true; },
+    async close() {},
+    async getRoom(code) { assertTest(); return structuredClone(rooms.get(code) || null); },
+    async createRoom(room) {
+      assertTest();
+      return locked(() => {
+        if (rooms.has(room.code)) return null;
+        const saved = { ...room, id: room.id || crypto.randomUUID() };
+        rooms.set(saved.code, structuredClone(saved));
+        return structuredClone(saved);
+      });
+    },
+    async authenticateRoom(code, passcode, keys, verify, maximum = 5) {
+      assertTest();
+      return locked(() => {
+        const now = Date.now();
+        for (const key of keys) {
+          const row = limits.get(key);
+          if (row && row.expiresAt > now && row.count >= maximum) return { rateLimited: true, room: null };
+        }
+        const room = rooms.get(code);
+        if (!room || !verify(passcode, room.passcode_hash, room.salt)) {
+          for (const key of keys) {
+            const row = limits.get(key);
+            limits.set(key, !row || row.expiresAt <= now ? { count: 1, expiresAt: now + 900000 } : { ...row, count: row.count + 1 });
+          }
+          return { rateLimited: false, room: null };
+        }
+        return { rateLimited: false, room: structuredClone(room) };
+      });
+    },
+    async chargeRateLimit(key, maximum = 30) {
+      assertTest();
+      return locked(() => {
+        const now = Date.now();
+        const row = limits.get(key);
+        if (row && row.expiresAt > now && row.count >= maximum) return false;
+        limits.set(key, !row || row.expiresAt <= now ? { count: 1, expiresAt: now + 900000 } : { ...row, count: row.count + 1 });
+        return true;
+      });
+    },
+    async clearRateLimit(key) { assertTest(); limits.delete(key); },
+    async roomStats(code) {
+      assertTest();
+      const active = [...foods.values()].filter(item => item.room_code === code && item.status !== 'CONSUMED');
+      return { active_food_count: active.length, urgent_food_count: active.filter(item => new Date(item.expiry_date).getTime() <= Date.now() + 2 * 86400000).length };
+    },
+    async listFoods(code) { assertTest(); return [...foods.values()].filter(item => item.room_code === code).map(item => structuredClone(item)); },
+    async createFood(food) { assertTest(); foods.set(food.id, structuredClone(food)); return structuredClone(food); },
+    async getFood(id, code) { assertTest(); const item = foods.get(id); return item?.room_code === code ? structuredClone(item) : null; },
+    async consumeFood(id, code, actor, addToShopping) {
+      assertTest();
+      return locked(() => {
+        const item = foods.get(id);
+        if (!item || item.room_code !== code) return null;
+        if (item.status !== 'CONSUMED') {
+          item.status = 'CONSUMED'; item.consumed_by = actor; item.consumed_at = new Date().toISOString();
+          if (addToShopping) {
+            const shop = { id: crypto.randomUUID(), room_code: code, name: item.name, quantity: item.quantity, is_bought: false, created_at: new Date().toISOString() };
+            shoppingItems.set(shop.id, shop);
+          }
+        }
+        return structuredClone(item);
+      });
+    },
+    async deleteFood(id, code) { assertTest(); const item = foods.get(id); return Boolean(item?.room_code === code && foods.delete(id)); },
+    async listShopping(code) { assertTest(); return [...shoppingItems.values()].filter(item => item.room_code === code).map(item => structuredClone(item)); },
+    async createShopping(item) { assertTest(); shoppingItems.set(item.id, structuredClone(item)); return structuredClone(item); },
+    async getShopping(id, code) { assertTest(); const item = shoppingItems.get(id); return item?.room_code === code ? structuredClone(item) : null; },
+    async toggleShopping(id, code, bought) { assertTest(); const item = shoppingItems.get(id); if (!item || item.room_code !== code) return null; item.is_bought = bought; return structuredClone(item); },
+    async deleteShopping(id, code) { assertTest(); const item = shoppingItems.get(id); return Boolean(item?.room_code === code && shoppingItems.delete(id)); },
+    async saveSubscription(code, subscription, deviceName) {
+      assertTest();
+      return locked(() => {
+        const existing = [...subscribers.values()].find(item => item.room_code === code && item.subscription.endpoint === subscription.endpoint);
+        const saved = { id: existing?.id || crypto.randomUUID(), room_code: code, subscription: structuredClone(subscription), device_name: deviceName || null, created_at: existing?.created_at || new Date().toISOString() };
+        subscribers.set(saved.id, saved); return structuredClone(saved);
+      });
+    },
+    async listSubscriptions(code) { assertTest(); return [...subscribers.values()].filter(item => item.room_code === code).map(item => structuredClone(item)); },
+  };
+}
+
+async function transaction(pool, operation) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await operation(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export function createPostgresRepository({ connectionString = process.env.DATABASE_URL, pool: suppliedPool } = {}) {
+  if (!suppliedPool && !connectionString) throw new HttpError(503, 'DATABASE_UNAVAILABLE', 'Database service is not configured.');
+  const pool = suppliedPool || new Pool({ connectionString, max: 5, connectionTimeoutMillis: 3000, idleTimeoutMillis: 10000, allowExitOnIdle: true });
+  const ownsPool = !suppliedPool;
+  // pg emits idle connection errors outside a request. Evicting them is pg's job;
+  // the listener prevents a process crash and never logs connection credentials.
+  if (ownsPool) pool.on('error', () => {});
+  const query = (text, values) => pool.query(text, values);
+  return {
+    kind: 'postgres', pool,
+    async ready() {
+      try {
+        const result = await query(`select exists(select 1 from sharefridge_private.schema_migrations where version=$1) as migrated,
+          to_regclass('public.rooms') is not null and to_regclass('public.foods') is not null and
+          to_regclass('public.shopping_items') is not null and to_regclass('public.push_subscriptions') is not null as tables`, [REQUIRED_MIGRATION]);
+        if (result.rows[0]?.migrated !== true || result.rows[0]?.tables !== true) return false;
+        await query(`select r.id,r.code,r.name,r.passcode_hash,r.salt,r.created_at,
+          f.id,f.room_code,f.name,f.quantity,f.compartment,f.container_tag,f.added_date,f.expiry_date,f.status,f.photo_url,f.storage_path,f.notes,f.created_by,f.consumed_by,f.consumed_at,
+          s.id,s.room_code,s.name,s.quantity,s.is_bought,s.created_at,
+          p.id,p.room_code,p.subscription,p.device_name,p.created_at,
+          l.bucket,l.count,l.expires_at,i.room_code,i.operation,i.key,i.request_hash,i.response,i.created_at
+          from public.rooms r,public.foods f,public.shopping_items s,public.push_subscriptions p,
+          sharefridge_private.rate_limits l,sharefridge_private.idempotency_keys i limit 0`);
+        return true;
+      } catch { return false; }
+    },
+    async close() { if (ownsPool) await pool.end(); },
+    async getRoom(code) { return normalizeRoom((await query('select * from public.rooms where code=$1', [code])).rows[0]); },
+    async createRoom(room) {
+      const result = await query(`insert into public.rooms(id,code,name,passcode_hash,salt,created_at) values($1,$2,$3,$4,$5,$6)
+        on conflict(code) do nothing returning *`, [room.id, room.code, room.name, room.passcode_hash, room.salt, room.created_at]);
+      return normalizeRoom(result.rows[0]);
+    },
+    async authenticateRoom(code, passcode, keys, verify, maximum = 5) {
+      return transaction(pool, async client => {
+        const { now, expires } = (await client.query("select clock_timestamp() as now, clock_timestamp() + interval '15 minutes' as expires")).rows[0];
+        const normalized = [...new Set(keys)].sort();
+        for (const key of normalized) await client.query(`insert into sharefridge_private.rate_limits(bucket,count,expires_at) values($1,0,$2) on conflict(bucket) do nothing`, [key, expires]);
+        const limited = await client.query(`select bucket,count,expires_at from sharefridge_private.rate_limits where bucket=any($1::text[]) order by bucket for update`, [normalized]);
+        for (const row of limited.rows) {
+          if (row.expires_at <= now) await client.query('update sharefridge_private.rate_limits set count=0,expires_at=$2 where bucket=$1', [row.bucket, expires]);
+          else if (row.count >= maximum) return { rateLimited: true, room: null };
+        }
+        const room = (await client.query('select * from public.rooms where code=$1', [code])).rows[0];
+        if (!room || !verify(passcode, room.passcode_hash, room.salt)) {
+          await client.query('update sharefridge_private.rate_limits set count=count+1 where bucket=any($1::text[])', [normalized]);
+          return { rateLimited: false, room: null };
+        }
+        return { rateLimited: false, room: normalizeRoom(room) };
+      });
+    },
+    async chargeRateLimit(key, maximum = 30) {
+      return transaction(pool, async client => {
+        const { now, expires } = (await client.query("select clock_timestamp() as now, clock_timestamp() + interval '15 minutes' as expires")).rows[0];
+        await client.query('insert into sharefridge_private.rate_limits(bucket,count,expires_at) values($1,0,$2) on conflict(bucket) do nothing', [key, expires]);
+        const row = (await client.query('select count,expires_at from sharefridge_private.rate_limits where bucket=$1 for update', [key])).rows[0];
+        if (row.expires_at <= now) await client.query('update sharefridge_private.rate_limits set count=0,expires_at=$2 where bucket=$1', [key, expires]);
+        else if (row.count >= maximum) return false;
+        await client.query('update sharefridge_private.rate_limits set count=count+1 where bucket=$1', [key]);
+        return true;
+      });
+    },
+    async clearRateLimit(key) { await query('delete from sharefridge_private.rate_limits where bucket=$1', [key]); },
+    async roomStats(code) {
+      const row = (await query(`select count(*) filter(where status <> 'CONSUMED')::int as active_food_count,
+        count(*) filter(where status <> 'CONSUMED' and expiry_date <= now() + interval '2 days')::int as urgent_food_count from public.foods where room_code=$1`, [code])).rows[0];
+      return row;
+    },
+    async listFoods(code) { return (await query('select * from public.foods where room_code=$1 order by added_date,id', [code])).rows.map(normalizeFood); },
+    async createFood(food) {
+      const row = (await query(`insert into public.foods(id,room_code,name,quantity,compartment,container_tag,added_date,expiry_date,status,photo_url,storage_path,notes,created_by,consumed_by,consumed_at)
+        values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) returning *`,
+      [food.id,food.room_code,food.name,food.quantity,food.compartment,food.container_tag,food.added_date,food.expiry_date,food.status,food.photo_url,food.storage_path||null,food.notes,food.created_by,food.consumed_by||null,food.consumed_at||null])).rows[0];
+      return normalizeFood(row);
+    },
+    async getFood(id, code) { if (!isUuid(id)) return null; return normalizeFood((await query('select * from public.foods where id=$1 and room_code=$2', [id,code])).rows[0]); },
+    async consumeFood(id, code, actor, addToShopping) {
+      if (!isUuid(id)) return null;
+      return transaction(pool, async client => {
+        const row = (await client.query('select * from public.foods where id=$1 and room_code=$2 for update', [id,code])).rows[0];
+        if (!row) return null;
+        if (row.status !== 'CONSUMED') {
+          const consumed = (await client.query(`update public.foods set status='CONSUMED',consumed_by=$3,consumed_at=now() where id=$1 and room_code=$2 returning *`, [id,code,actor])).rows[0];
+          if (addToShopping) await client.query(`insert into public.shopping_items(id,room_code,name,quantity,is_bought,created_at) values($1,$2,$3,$4,false,now())`, [crypto.randomUUID(),code,row.name,row.quantity]);
+          return normalizeFood(consumed);
+        }
+        return normalizeFood(row);
+      });
+    },
+    async deleteFood(id, code) { if (!isUuid(id)) return false; return (await query('delete from public.foods where id=$1 and room_code=$2', [id,code])).rowCount > 0; },
+    async listShopping(code) { return (await query('select * from public.shopping_items where room_code=$1 order by created_at,id', [code])).rows.map(normalizeShopping); },
+    async createShopping(item) { return normalizeShopping((await query(`insert into public.shopping_items(id,room_code,name,quantity,is_bought,created_at) values($1,$2,$3,$4,$5,$6) returning *`, [item.id,item.room_code,item.name,item.quantity,item.is_bought,item.created_at])).rows[0]); },
+    async getShopping(id, code) { if (!isUuid(id)) return null; return normalizeShopping((await query('select * from public.shopping_items where id=$1 and room_code=$2', [id,code])).rows[0]); },
+    async toggleShopping(id, code, bought) { if (!isUuid(id)) return null; return normalizeShopping((await query('update public.shopping_items set is_bought=$3 where id=$1 and room_code=$2 returning *', [id,code,bought])).rows[0]); },
+    async deleteShopping(id, code) { if (!isUuid(id)) return false; return (await query('delete from public.shopping_items where id=$1 and room_code=$2', [id,code])).rowCount > 0; },
+    async saveSubscription(code, subscription, deviceName) {
+      return transaction(pool, async client => {
+        await client.query('select pg_advisory_xact_lock(hashtextextended($1,0))', [`${code}:${subscription.endpoint}`]);
+        const existing = (await client.query(`select * from public.push_subscriptions where room_code=$1 and subscription->>'endpoint'=$2 order by created_at,id limit 1`, [code,subscription.endpoint])).rows[0];
+        const result = existing
+          ? await client.query('update public.push_subscriptions set subscription=$3,device_name=$4 where id=$1 and room_code=$2 returning *', [existing.id,code,subscription,deviceName||null])
+          : await client.query('insert into public.push_subscriptions(id,room_code,subscription,device_name,created_at) values($1,$2,$3,$4,now()) returning *', [crypto.randomUUID(),code,subscription,deviceName||null]);
+        return { ...result.rows[0], id: String(result.rows[0].id), created_at: iso(result.rows[0].created_at) };
+      });
+    },
+    async listSubscriptions(code) { return (await query('select * from public.push_subscriptions where room_code=$1 order by created_at,id', [code])).rows.map(row => ({ ...row, id: String(row.id), created_at: iso(row.created_at) })); },
+  };
+}
+
+export function createConfiguredRepository() {
+  return createPostgresRepository({ connectionString: process.env.DATABASE_URL });
+}
+
+export { REQUIRED_MIGRATION };

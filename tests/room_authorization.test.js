@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import crypto from 'node:crypto';
-import handler from '../api/index.js';
-import { db } from '../server/apiHandler.js';
-import { generateSessionToken, hashPasscode, verifyPasscode, verifySessionToken, recordSuccessAttempt } from '../server/security.js';
+import { createServerlessHandler } from '../api/index.js';
+import { db, handleApiRequest } from './helpers.js';
+const handler = createServerlessHandler(handleApiRequest);
+import { generateSessionToken, hashPasscode, verifyPasscode, verifySessionToken } from '../server/security.js';
 
 let server, baseUrl, first, second, food, shopping;
 const call = async (path, { method = 'GET', token, body, headers = {} } = {}) => {
@@ -157,7 +158,7 @@ test('production rejects absent/default/weak session secrets before inserting a 
       assert.throws(() => generateSessionToken('681801'), { code: 'SESSION_UNAVAILABLE' });
       const response = await call('/api/auth/create-room', { method: 'POST', body: { code: '681898', passcode: '6789' } });
       assert.equal(response.status, 503);
-      assert.equal(response.data.code, 'SESSION_UNAVAILABLE');
+      assert.equal(response.data.code, 'DATABASE_UNAVAILABLE');
       assert.equal(db.rooms.has('681898'), false);
     }
   } finally {
@@ -210,8 +211,8 @@ test('failures never expose internal exception details', async () => {
 test('failed PIN attempts are throttled even when the caller spoofs X-Forwarded-For', async () => {
   // Reset only this fixture's limiter keys; the proof does not depend on which
   // credential-failure assertions ran earlier in this test process.
-  recordSuccessAttempt('join-ip:127.0.0.1');
-  recordSuccessAttempt(`join-room:${second.room.code}`);
+  await db.clearRateLimit(crypto.createHash('sha256').update('join-ip:127.0.0.1').digest('hex'));
+  await db.clearRateLimit(crypto.createHash('sha256').update(`join-room:${second.room.code}`).digest('hex'));
   for (let index = 0; index < 6; index++) {
     const result = await call('/api/auth/join-room', { method: 'POST', body: { code: second.room.code, passcode: '0000' }, headers: { 'x-forwarded-for': `198.51.100.${index}` } });
     assert.equal(result.status, index < 5 ? 401 : 429);
@@ -225,7 +226,7 @@ test('served OpenAPI declares auth routes, protected operations and safe error/r
   for (const name of ['create-room', 'join-room', 'verify-token']) assert.ok(spec.paths[`/api/auth/${name}`]?.post);
   assert.equal(spec.components.securitySchemes.RoomBearer.scheme, 'bearer');
   for (const [path, operations] of Object.entries(spec.paths)) {
-    if (path === '/healthz' || path === '/api/rooms' || path.startsWith('/api/auth/')) continue;
+    if (path === '/healthz' || path === '/readyz' || path === '/api/rooms' || path.startsWith('/api/auth/')) continue;
     for (const operation of Object.values(operations)) {
       assert.deepEqual(operation.security, [{ RoomBearer: [] }], path);
       assert.ok(operation.responses['401'] && operation.responses['403']);

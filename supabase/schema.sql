@@ -1,75 +1,133 @@
--- =============================================================================
--- ShareFridge — Cloud Database Migration Schema (PostgreSQL / Supabase)
--- =============================================================================
+-- C-019: additive, repeatable PostgreSQL/Supabase migration. Run as DB owner.
+-- No seed data and no DELETE/DROP TABLE; existing UUIDs, credentials and rows survive.
+begin;
+select pg_advisory_xact_lock(1936225906, 19);
+create schema if not exists sharefridge_private;
+revoke all on schema sharefridge_private from public;
+create table if not exists sharefridge_private.schema_migrations (
+  version text primary key,
+  applied_at timestamptz not null default now()
+);
 
--- Enable UUID extension
-create extension if not exists "uuid-ossp";
-
--- 1. Rooms Table
 create table if not exists public.rooms (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   code varchar(10) unique not null,
   name text not null,
   passcode_hash text not null,
   salt text not null,
   created_at timestamptz default now()
 );
-
--- 2. Food Items Table
 create table if not exists public.foods (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   room_code varchar(10) not null references public.rooms(code) on delete cascade,
   name text not null,
   quantity text,
-  compartment varchar(20) not null check (compartment in ('FREEZER', 'FRIDGE_TOP', 'FRIDGE_BOTTOM', 'CRISPER', 'DOOR')),
+  compartment varchar(20) not null check (compartment in ('FREEZER','FRIDGE_TOP','FRIDGE_BOTTOM','CRISPER','DOOR')),
   container_tag text,
   added_date timestamptz default now(),
   expiry_date timestamptz not null,
-  status varchar(20) not null default 'FRESH' check (status in ('FRESH', 'COOK_SOON', 'EXPIRED', 'CONSUMED')),
+  status varchar(20) not null default 'FRESH' check (status in ('FRESH','COOK_SOON','EXPIRED','CONSUMED')),
   photo_url text,
   notes text,
   created_by text default 'Bạn cùng phòng',
   consumed_at timestamptz
 );
-
--- 3. Shopping Items Table
+alter table public.foods add column if not exists consumed_by text;
+alter table public.foods add column if not exists storage_path text;
 create table if not exists public.shopping_items (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   room_code varchar(10) not null references public.rooms(code) on delete cascade,
   name text not null,
   quantity text,
   is_bought boolean not null default false,
   created_at timestamptz default now()
 );
-
--- 4. Push Subscriptions Table
 create table if not exists public.push_subscriptions (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   room_code varchar(10) not null references public.rooms(code) on delete cascade,
   subscription jsonb not null,
   device_name text,
   created_at timestamptz default now()
 );
-
--- Indexes for lightning fast queries
-create index if not exists idx_foods_room_status on public.foods(room_code, status);
+-- An expression index preserves even duplicate legacy endpoints; API upserts use
+-- a transaction advisory lock and reuse the oldest matching row.
+create index if not exists idx_push_room_endpoint on public.push_subscriptions(room_code, (subscription->>'endpoint'));
+create index if not exists idx_foods_room_status on public.foods(room_code,status);
 create index if not exists idx_foods_expiry on public.foods(expiry_date);
-create index if not exists idx_shopping_room on public.shopping_items(room_code, is_bought);
+create index if not exists idx_shopping_room on public.shopping_items(room_code,is_bought);
 
--- Row Level Security (RLS) Policies
+create table if not exists sharefridge_private.rate_limits (
+  bucket text primary key,
+  count integer not null check(count >= 0),
+  expires_at timestamptz not null
+);
+create index if not exists idx_rate_limit_expiry on sharefridge_private.rate_limits(expires_at);
+-- Durable replay storage used by transactional operations added in later cards.
+create table if not exists sharefridge_private.idempotency_keys (
+  room_code varchar(10) not null references public.rooms(code) on delete cascade,
+  operation text not null,
+  key text not null,
+  request_hash text not null,
+  response jsonb not null,
+  created_at timestamptz not null default now(),
+  primary key(room_code,operation,key)
+);
+
+revoke all on all tables in schema sharefridge_private from public;
+
 alter table public.rooms enable row level security;
 alter table public.foods enable row level security;
 alter table public.shopping_items enable row level security;
 alter table public.push_subscriptions enable row level security;
 
--- Public access policies scoped by room_code (matching client session)
-create policy "Allow room read" on public.rooms for select using (true);
-create policy "Allow room insert" on public.rooms for insert with check (true);
+-- Remove the former USING(true) policies and any obsolete policies on these
+-- application-owned tables. Permissions AND policies must both be restricted.
+do $migration$
+declare entry record; role_name text;
+begin
+  for entry in select tablename,policyname from pg_policies where schemaname='public' and tablename in ('rooms','foods','shopping_items','push_subscriptions') loop
+    execute format('drop policy %I on public.%I',entry.policyname,entry.tablename);
+  end loop;
+  for entry in select unnest(array['rooms','foods','shopping_items','push_subscriptions']) as table_name loop
+    execute format('revoke all on table public.%I from public',entry.table_name);
+    foreach role_name in array array['anon','authenticated'] loop
+      if exists(select 1 from pg_roles where rolname=role_name) then
+        execute format('revoke all on table public.%I from %I',entry.table_name,role_name);
+      end if;
+    end loop;
+  end loop;
+  foreach role_name in array array['anon','authenticated'] loop
+    if exists(select 1 from pg_roles where rolname=role_name) then
+      execute format('revoke all on schema sharefridge_private from %I',role_name);
+      execute format('revoke all on all tables in schema sharefridge_private from %I',role_name);
+    end if;
+  end loop;
+  if exists(select 1 from pg_roles where rolname='authenticated') then
+    grant select on public.foods,public.shopping_items to authenticated;
+  end if;
+end $migration$;
 
-create policy "Allow food operations" on public.foods for all using (true) with check (true);
-create policy "Allow shopping operations" on public.shopping_items for all using (true) with check (true);
-create policy "Allow push subscriptions" on public.push_subscriptions for all using (true) with check (true);
+-- A room-scoped signed Realtime JWT supplies room_code in request.jwt.claims.
+-- No client role can read room hashes/subscriptions or write any table.
+create policy room_food_read on public.foods for select using (
+  room_code = (nullif(current_setting('request.jwt.claims',true),'')::jsonb ->> 'room_code')
+);
+create policy room_shopping_read on public.shopping_items for select using (
+  room_code = (nullif(current_setting('request.jwt.claims',true),'')::jsonb ->> 'room_code')
+);
 
--- Enable Supabase Realtime for instant synchronization
-alter publication supabase_realtime add table public.foods;
-alter publication supabase_realtime add table public.shopping_items;
+-- Supabase manages this publication; plain PostgreSQL has none. Re-running the
+-- migration must not fail when a table is already published.
+do $realtime$
+begin
+  if exists(select 1 from pg_publication where pubname='supabase_realtime') then
+    if not exists(select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='foods') then
+      alter publication supabase_realtime add table public.foods;
+    end if;
+    if not exists(select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='shopping_items') then
+      alter publication supabase_realtime add table public.shopping_items;
+    end if;
+  end if;
+end $realtime$;
+insert into sharefridge_private.schema_migrations(version) values('001_durable_repository') on conflict(version) do nothing;
+commit;

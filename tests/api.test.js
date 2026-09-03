@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert';
 import http from 'node:http';
-import { handleApiRequest, db } from '../server/apiHandler.js';
+import { handleApiRequest, db } from './helpers.js';
 
 let server;
 let baseUrl;

@@ -23,3 +23,4 @@ the next card touching that stack starts from the gotchas instead of rediscoveri
 | Playbook | When to use |
 |---|---|
 | [node-http-body.md](node-http-body.md) | Shared Node/serverless handlers, parsed request bodies and safe JSON errors |
+| [postgres-durable-repository.md](postgres-durable-repository.md) | Pooled Node PostgreSQL transactions, repeatable migration and room RLS verification |

@@ -3,58 +3,12 @@ import crypto from 'node:crypto';
 import { HttpError, readJsonBody, sendError } from './http.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { hashPasscode, verifyPasscode, generateSessionToken, verifySessionToken, checkRateLimit, recordFailedAttempt } from './security.js';
+import { hashPasscode, verifyPasscode, generateSessionToken, verifySessionToken } from './security.js';
+import { createConfiguredRepository } from './repository.js';
 import { suggestRecipesWithGemini, parseVoiceWithGemini } from './geminiService.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const openApiSpec = JSON.parse(fs.readFileSync(path.join(__dirname, 'openapi.json'), 'utf-8'));
-
-// Initialize default rooms with hashed passcode '1234'
-const defaultPass = hashPasscode('1234');
-
-// In-Memory Database for local dev & server testing
-export const db = {
-  rooms: new Map([
-    ['123456', { id: 'room-123456', code: '123456', name: 'Phòng Trọ 302', passcode_hash: defaultPass.hash, salt: defaultPass.salt, created_at: new Date().toISOString() }],
-    ['839201', { id: 'room-839201', code: '839201', name: 'Phòng Cầu Giấy', passcode_hash: defaultPass.hash, salt: defaultPass.salt, created_at: new Date().toISOString() }]
-  ]),
-  foods: new Map([
-    ['food-1', {
-      id: 'food-1',
-      room_code: '123456',
-      name: 'Rau muống',
-      quantity: '1 mớ',
-      compartment: 'CRISPER',
-      container_tag: 'Túi nilon đỏ',
-      added_date: new Date().toISOString(),
-      expiry_date: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString(),
-      days_remaining: 1,
-      status: 'COOK_SOON',
-      photo_url: null,
-      notes: 'Mua ở chợ hôm qua',
-      created_by: 'Khải'
-    }],
-    ['food-2', {
-      id: 'food-2',
-      room_code: '123456',
-      name: 'Thịt ba chỉ',
-      quantity: '500g',
-      compartment: 'FREEZER',
-      container_tag: 'Hộp Lock nắp xanh',
-      added_date: new Date().toISOString(),
-      expiry_date: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString(),
-      days_remaining: 10,
-      status: 'FRESH',
-      photo_url: null,
-      notes: null,
-      created_by: 'Khải'
-    }]
-  ]),
-  shoppingItems: new Map([
-    ['shop-1', { id: 'shop-1', room_code: '123456', name: 'Trứng gà (10 quả)', quantity: '1 vỉ', is_bought: false, created_at: new Date().toISOString() }]
-  ]),
-  subscribers: new Map()
-};
 
 function calculateStatusAndDays(expiryDateStr) {
   const now = new Date();
@@ -93,25 +47,48 @@ function assertRoomAccess(code, session) {
   return code;
 }
 
-function ownedItem(collection, id, session) {
-  const item = collection.get(id);
-  if (!item || item.room_code !== session.room_code) throw new HttpError(404, 'NOT_FOUND', 'Item not found.');
+function requireItem(item) {
+  if (!item) throw new HttpError(404, 'NOT_FOUND', 'Item not found.');
   return item;
 }
 
-export async function handleApiRequest(req, res) {
-  try {
-    return await dispatchApiRequest(req, res);
-  } catch (error) {
-    sendError(res, error);
-    return true;
-  }
+function limiterKey(value) {
+  return crypto.createHash('sha256').update(value).digest('hex');
 }
 
-async function dispatchApiRequest(req, res) {
+let defaultRepository;
+export function createApiHandler(repository) {
+  return async (req, res) => {
+    try {
+      return await dispatchApiRequest(req, res, repository);
+    } catch (error) {
+      if (['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', '57P01', '57P02', '57P03', '42P01', '42703'].includes(error.code)) {
+        sendError(res, new HttpError(503, 'DATABASE_UNAVAILABLE', 'Database service is unavailable.'));
+      } else sendError(res, error);
+      return true;
+    }
+  };
+}
+export const handleApiRequest = createApiHandler();
+
+async function dispatchApiRequest(req, res, repository) {
   const url = new URL(req.url, 'http://localhost');
   const pathname = url.pathname;
   const method = req.method;
+  if (pathname === '/readyz' && method === 'GET') {
+    let ready = false, kind = 'unavailable';
+    try {
+      const candidate = repository || (defaultRepository ??= createConfiguredRepository());
+      ready = await candidate.ready();
+      if (ready) kind = candidate.kind;
+    } catch { /* Readiness deliberately excludes connection/configuration details. */ }
+    res.writeHead(ready ? 200 : 503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: ready ? 'ok' : 'unavailable', database: kind }));
+    return true;
+  }
+  const needsDatabase = pathname !== '/healthz' && pathname !== '/api/openapi.json' && pathname.startsWith('/api/');
+  let db = repository;
+  const resolveDb = () => db ??= defaultRepository ??= createConfiguredRepository();
   let session;
   // A single gate covers every current and future route in a room namespace.
   const protectedPath = /^\/api\/(?:rooms\/|foods(?:\/|$)|shopping-items(?:\/|$)|ai(?:\/|$)|notifications(?:\/|$)|photos(?:\/|$)|realtime-token(?:\/|$))/.test(pathname);
@@ -119,9 +96,10 @@ async function dispatchApiRequest(req, res) {
     const auth = req.headers.authorization;
     const match = typeof auth === 'string' && auth.match(/^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/i);
     session = match ? verifySessionToken(match[1]) : null;
-    if (!session || !db.rooms.has(session.room_code)) throw new HttpError(401, 'UNAUTHORIZED', 'A valid room session is required.');
+    if (!session || !(await resolveDb().getRoom(session.room_code))) throw new HttpError(401, 'UNAUTHORIZED', 'A valid room session is required.');
     for (const code of url.searchParams.getAll('room_code')) assertRoomAccess(code, session);
   }
+  if (needsDatabase) db = resolveDb();
   let bodyPromise;
   const parseJsonBody = () => {
     bodyPromise ??= readJsonBody(req).then(data => {
@@ -148,20 +126,19 @@ async function dispatchApiRequest(req, res) {
   // Both create routes use the same validation and duplicate protection.
   if ((pathname === '/api/auth/create-room' || pathname === '/api/rooms') && method === 'POST') {
     const ip = process.env.VERCEL === '1' ? String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown').split(',')[0].trim() : req.socket?.remoteAddress || 'unknown';
-    const key = `create:${ip}`;
-    if (!checkRateLimit(key).allowed) throw new HttpError(429, 'RATE_LIMITED', 'Too many room creation attempts.');
-    recordFailedAttempt(key, 30);
+    const key = limiterKey(`create:${ip}`);
+    if (!(await db.chargeRateLimit(key, 30))) throw new HttpError(429, 'RATE_LIMITED', 'Too many room creation attempts.');
     const data = await parseJsonBody();
     const passcode = validatePasscode(data.passcode);
     const nickname = boundedText(data.nickname, 'Bạn cùng phòng', 'Nickname');
     let code;
     if (data.code !== undefined) {
       code = roomCode(data.code);
-      if (db.rooms.has(code)) throw new HttpError(409, 'ROOM_EXISTS', 'Room code already exists.');
+      if ((await db.getRoom(code))) throw new HttpError(409, 'ROOM_EXISTS', 'Room code already exists.');
     } else {
       for (let attempt = 0; attempt < 20; attempt++) {
         const candidate = crypto.randomInt(100000, 1000000).toString();
-        if (!db.rooms.has(candidate)) { code = candidate; break; }
+        if (!(await db.getRoom(candidate))) { code = candidate; break; }
       }
       if (!code) throw new HttpError(503, 'ROOM_CODE_UNAVAILABLE', 'Could not allocate a room code.');
     }
@@ -169,8 +146,8 @@ async function dispatchApiRequest(req, res) {
     // Validate session configuration before mutating room state.
     const token = generateSessionToken(code, nickname);
     const { hash, salt } = hashPasscode(passcode);
-    const room = { id: `room-${code}`, code, name, passcode_hash: hash, salt, created_at: new Date().toISOString() };
-    db.rooms.set(code, room);
+    const room = await db.createRoom({ id: crypto.randomUUID(), code, name, passcode_hash: hash, salt, created_at: new Date().toISOString() });
+    if (!room) throw new HttpError(409, 'ROOM_EXISTS', 'Room code already exists.');
     res.writeHead(201, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(pathname === '/api/rooms' ? publicRoom(room) : { room: publicRoom(room), token, nickname }));
     return true;
@@ -183,13 +160,11 @@ async function dispatchApiRequest(req, res) {
     const passcode = validatePasscode(data.passcode);
     const nickname = boundedText(data.nickname, 'Bạn cùng phòng', 'Nickname');
     // A success in another room cannot clear guesses against the target room.
-    const keys = [`join-ip:${ip}`, `join-room:${code}`];
-    if (keys.some(key => !checkRateLimit(key).allowed)) throw new HttpError(429, 'RATE_LIMITED', 'Too many sign-in attempts.');
-    const room = db.rooms.get(code);
-    if (!room || !verifyPasscode(passcode, room.passcode_hash, room.salt)) {
-      for (const key of keys) recordFailedAttempt(key);
-      throw new HttpError(401, 'INVALID_CREDENTIALS', 'Room code or passcode is incorrect.');
-    }
+    const keys = [limiterKey(`join-ip:${ip}`), limiterKey(`join-room:${code}`)];
+    const login = await db.authenticateRoom(code, passcode, keys, verifyPasscode);
+    if (login.rateLimited) throw new HttpError(429, 'RATE_LIMITED', 'Too many sign-in attempts.');
+    const room = login.room;
+    if (!room) throw new HttpError(401, 'INVALID_CREDENTIALS', 'Room code or passcode is incorrect.');
     // Successful sign-ins do not clear accumulated failed attempts in the window.
     const token = generateSessionToken(code, nickname);
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -200,7 +175,7 @@ async function dispatchApiRequest(req, res) {
   if (pathname === '/api/auth/verify-token' && method === 'POST') {
     const data = await parseJsonBody();
     const payload = verifySessionToken(data.token);
-    const room = payload && db.rooms.get(payload.room_code);
+    const room = payload && await db.getRoom(payload.room_code);
     if (!payload || !room) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ valid: false, error: 'Token không hợp lệ hoặc đã hết hạn.', code: 'UNAUTHORIZED' }));
@@ -214,16 +189,15 @@ async function dispatchApiRequest(req, res) {
   const roomMatch = pathname.match(/^\/api\/rooms\/([a-zA-Z0-9_-]+)$/);
   if (roomMatch && method === 'GET') {
     const code = assertRoomAccess(roomMatch[1], session);
-    const room = db.rooms.get(code);
+    const room = await db.getRoom(code);
     if (!room) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Room not found', code: 'NOT_FOUND' }));
       return true;
     }
-    const foods = Array.from(db.foods.values()).filter(f => f.room_code === code && f.status !== 'CONSUMED');
-    const urgentCount = foods.filter(f => f.status === 'COOK_SOON' || f.status === 'EXPIRED').length;
+    const counts = await db.roomStats(code);
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ...publicRoom(room), active_food_count: foods.length, urgent_food_count: urgentCount }));
+    res.end(JSON.stringify({ ...publicRoom(room), ...counts }));
     return true;
   }
 
@@ -231,7 +205,7 @@ async function dispatchApiRequest(req, res) {
   if (pathname === '/api/foods' && method === 'GET') {
     const room_code = assertRoomAccess(url.searchParams.get('room_code'), session);
     const statusFilter = url.searchParams.get('status');
-    let items = Array.from(db.foods.values()).filter(f => f.room_code === room_code);
+    let items = await db.listFoods(room_code);
     
     // Recalculate dynamic days remaining
     items = items.map(f => {
@@ -253,7 +227,7 @@ async function dispatchApiRequest(req, res) {
 
   if (pathname === '/api/foods' && method === 'POST') {
     const data = await parseJsonBody();
-    const id = `food-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const id = crypto.randomUUID();
     const shelfDays = Number(data.shelf_life_days) || 3;
     const addedDate = new Date();
     const expiryDate = new Date(addedDate.getTime() + shelfDays * 24 * 60 * 60 * 1000);
@@ -275,7 +249,7 @@ async function dispatchApiRequest(req, res) {
       created_by: session.nickname
     };
 
-    db.foods.set(id, food);
+    await db.createFood(food);
     res.writeHead(201, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(food));
     return true;
@@ -285,23 +259,8 @@ async function dispatchApiRequest(req, res) {
   if (foodConsumeMatch && method === 'PATCH') {
     const id = foodConsumeMatch[1];
     const data = await parseJsonBody();
-    const food = ownedItem(db.foods, id, session);
-    food.status = 'CONSUMED';
-    food.consumed_by = session.nickname;
-    food.consumed_at = new Date().toISOString();
-    db.foods.set(id, food);
-
-    if (data.add_to_shopping_list) {
-      const shopId = `shop-${Date.now()}`;
-      db.shoppingItems.set(shopId, {
-        id: shopId,
-        room_code: food.room_code,
-        name: food.name,
-        quantity: food.quantity,
-        is_bought: false,
-        created_at: new Date().toISOString()
-      });
-    }
+    const food = requireItem(await db.consumeFood(id, session.room_code, session.nickname, Boolean(data.add_to_shopping_list)));
+    food.days_remaining = calculateStatusAndDays(food.expiry_date).days_remaining;
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(food));
@@ -311,8 +270,7 @@ async function dispatchApiRequest(req, res) {
   const foodDeleteMatch = pathname.match(/^\/api\/foods\/([a-zA-Z0-9_-]+)$/);
   if (foodDeleteMatch && method === 'DELETE') {
     const id = foodDeleteMatch[1];
-    ownedItem(db.foods, id, session);
-    db.foods.delete(id);
+    requireItem(await db.deleteFood(id, session.room_code));
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true, deleted_id: id }));
     return true;
@@ -333,7 +291,7 @@ async function dispatchApiRequest(req, res) {
     const customApiKey = req.headers['x-gemini-key'] || '';
     const { room_code, preference } = await parseJsonBody();
     assertRoomAccess(room_code, session);
-    const availableFoods = Array.from(db.foods.values()).filter(f => f.room_code === session.room_code && f.status !== 'CONSUMED');
+    const availableFoods = (await db.listFoods(session.room_code)).filter(f => f.status !== 'CONSUMED');
     
     // Recalculate days remaining before passing to AI prompt
     const enrichedFoods = availableFoods.map(f => {
@@ -353,7 +311,7 @@ async function dispatchApiRequest(req, res) {
   // 7. Shopping items
   if (pathname === '/api/shopping-items' && method === 'GET') {
     const room_code = assertRoomAccess(url.searchParams.get('room_code'), session);
-    const items = Array.from(db.shoppingItems.values()).filter(i => i.room_code === room_code);
+    const items = await db.listShopping(room_code);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ items }));
     return true;
@@ -361,7 +319,7 @@ async function dispatchApiRequest(req, res) {
 
   if (pathname === '/api/shopping-items' && method === 'POST') {
     const data = await parseJsonBody();
-    const id = `shop-${Date.now()}`;
+    const id = crypto.randomUUID();
     const item = {
       id,
       room_code: assertRoomAccess(data.room_code, session),
@@ -370,7 +328,7 @@ async function dispatchApiRequest(req, res) {
       is_bought: false,
       created_at: new Date().toISOString()
     };
-    db.shoppingItems.set(id, item);
+    await db.createShopping(item);
     res.writeHead(201, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(item));
     return true;
@@ -380,9 +338,7 @@ async function dispatchApiRequest(req, res) {
   if (shopToggleMatch && method === 'PATCH') {
     const id = shopToggleMatch[1];
     const data = await parseJsonBody();
-    const item = ownedItem(db.shoppingItems, id, session);
-    item.is_bought = data.is_bought;
-    db.shoppingItems.set(id, item);
+    const item = requireItem(await db.toggleShopping(id, session.room_code, data.is_bought));
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(item));
     return true;
@@ -391,8 +347,7 @@ async function dispatchApiRequest(req, res) {
   const shopDeleteMatch = pathname.match(/^\/api\/shopping-items\/([a-zA-Z0-9_-]+)$/);
   if (shopDeleteMatch && method === 'DELETE') {
     const id = shopDeleteMatch[1];
-    ownedItem(db.shoppingItems, id, session);
-    db.shoppingItems.delete(id);
+    requireItem(await db.deleteShopping(id, session.room_code));
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true }));
     return true;
@@ -402,8 +357,8 @@ async function dispatchApiRequest(req, res) {
   if (pathname === '/api/notifications/subscribe' && method === 'POST') {
     const data = await parseJsonBody();
     assertRoomAccess(data.room_code, session);
-    const subscriber_id = `sub-${crypto.randomUUID()}`;
-    db.subscribers.set(subscriber_id, data);
+    const subscription = await db.saveSubscription(session.room_code, data.subscription, data.device_name);
+    const subscriber_id = subscription.id;
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true, subscriber_id }));
     return true;

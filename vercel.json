@@ -32,11 +32,15 @@
       "destination": "/api"
     },
     {
+      "source": "/readyz",
+      "destination": "/api"
+    },
+    {
       "source": "/api/:match*",
       "destination": "/api"
     },
     {
-      "source": "/((?!api|healthz|sw\\.js|workbox-.*|assets|manifest\\.webmanifest|registerSW\\.js|favicon\\.ico).*)*",
+      "source": "/((?!api|healthz|readyz|sw\\.js|workbox-.*|assets|manifest\\.webmanifest|registerSW\\.js|favicon\\.ico).*)*",
       "destination": "/index.html"
     }
   ]

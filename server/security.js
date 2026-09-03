@@ -56,26 +56,3 @@ export function verifySessionToken(token) {
     return null;
   }
 }
-
-// This local limiter is replaced by shared state in C-019. Never trust an
-// arbitrary X-Forwarded-For header to identify a caller outside the hosted proxy.
-const rateLimitMap = new Map();
-export function checkRateLimit(key) {
-  const now = Date.now();
-  let record = rateLimitMap.get(key);
-  if (!record || now >= record.resetAt) {
-    record = { count: 0, resetAt: now + 15 * 60 * 1000, lockedUntil: 0 };
-    rateLimitMap.set(key, record);
-  }
-  if (record.lockedUntil > now) return { allowed: false, error: 'Quá nhiều lần thử. Vui lòng thử lại sau.', status: 429 };
-  return { allowed: true, record };
-}
-export function recordFailedAttempt(key, maximum = 5) {
-  const { record } = checkRateLimit(key);
-  if (!record) return;
-  record.count += 1;
-  if (record.count >= maximum) record.lockedUntil = record.resetAt;
-}
-export function recordSuccessAttempt(key) {
-  rateLimitMap.delete(key);
-}

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert';
 import http from 'node:http';
-import { handleApiRequest } from '../server/apiHandler.js';
+import { handleApiRequest } from './helpers.js';
 import { hashPasscode, verifyPasscode, generateSessionToken, verifySessionToken } from '../server/security.js';
 
 let server;

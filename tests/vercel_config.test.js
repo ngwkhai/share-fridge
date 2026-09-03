@@ -16,6 +16,12 @@ test('Vercel Config: vercel.json is valid and contains required rewrites & PWA h
   assert.ok(Array.isArray(config.rewrites));
   assert.ok(config.rewrites.some(r => r.source === '/healthz'));
   assert.ok(config.rewrites.some(r => r.source === '/api/:match*'));
+  const readiness = config.rewrites.findIndex(r => r.source === '/readyz' && r.destination === '/api');
+  const fallback = config.rewrites.findIndex(r => r.destination === '/index.html');
+  assert.ok(readiness >= 0 && readiness < fallback, 'Readiness must reach serverless before SPA fallback');
+  const fallbackPattern = new RegExp(`^${config.rewrites[fallback].source}$`);
+  assert.strictEqual(fallbackPattern.test('/readyz'), false, 'Readiness must never return SPA HTML');
+  assert.strictEqual(fallbackPattern.test('/room/example'), true, 'Client navigation keeps SPA fallback');
 });
 
 test('Vercel Serverless Function: api/index.js handles healthz and auth requests', async () => {

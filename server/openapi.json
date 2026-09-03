@@ -1498,6 +1498,78 @@
           }
         }
       }
+    },
+    "/readyz": {
+      "get": {
+        "summary": "Database readiness including required migration and schema",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Database ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "database"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok",
+                        "unavailable"
+                      ]
+                    },
+                    "database": {
+                      "type": "string",
+                      "enum": [
+                        "postgres",
+                        "test",
+                        "unavailable"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database unavailable or migration missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "database"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok",
+                        "unavailable"
+                      ]
+                    },
+                    "database": {
+                      "type": "string",
+                      "enum": [
+                        "postgres",
+                        "test",
+                        "unavailable"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {

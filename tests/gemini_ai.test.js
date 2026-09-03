@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert';
 import http from 'node:http';
-import { handleApiRequest } from '../server/apiHandler.js';
+import { handleApiRequest } from './helpers.js';
 import { suggestRecipesWithGemini, parseVoiceWithGemini } from '../server/geminiService.js';
 
 let server;
@@ -23,8 +23,8 @@ test.before(async () => {
       resolve();
     });
   });
-  const joinRes = await fetch(`${baseUrl}/api/auth/join-room`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: '123456', passcode: '1234' }) });
-  assert.strictEqual(joinRes.status, 200);
+  const joinRes = await fetch(`${baseUrl}/api/auth/create-room`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: '123456', passcode: '1234' }) });
+  assert.strictEqual(joinRes.status, 201);
   token = (await joinRes.json()).token;
 });
 

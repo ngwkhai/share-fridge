@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert';
 import http from 'http';
-import { handleApiRequest } from '../server/apiHandler.js';
+import { handleApiRequest } from './helpers.js';
 
 test('Session Cache & Room Auto-Creation: API creates room with passcode and verifies token', async () => {
   const server = http.createServer(async (req, res) => {
