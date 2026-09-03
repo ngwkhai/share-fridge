@@ -1,0 +1,17 @@
+
+> share-fridge@1.0.0 test:photos-postgres
+> node --test --test-timeout=60000 tests/photos_postgres.integration.js
+
+✔ claimAttachment inside createFood is transactional: a bogus storage_path rolls back the whole insert (45.193791ms)
+✔ a staged upload can be attached exactly once, and cannot be re-attached to a second food (9.975208ms)
+✔ replacing a food photo releases the old storage_path for cleanup and claims the new one atomically (9.667209ms)
+✔ deleting a food releases its attached photo for cleanup (5.385458ms)
+✔ an Idempotency-Key replay only matches within the same room, and claimCleanup sweeps stale staged rows into pending_delete (5.109792ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 140.82925

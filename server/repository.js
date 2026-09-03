@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { Pool } from 'pg';
 import { HttpError } from './http.js';
 import { createPushRepository, createMemoryPushRepository } from './pushRepository.js';
+import { createPhotoRepository, createMemoryPhotoRepository } from './photosRepository.js';
 
 const REQUIRED_MIGRATION = '001_durable_repository';
 const isUuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -67,6 +68,8 @@ export function createMemoryRepository(seed = {}) {
   const foods = new Map((seed.foods || []).map(item => [item.id, structuredClone(item)]));
   const shoppingItems = new Map((seed.shoppingItems || []).map(item => [item.id, structuredClone(item)]));
   const subscribers = new Map((seed.subscribers || []).map(item => [item.id, structuredClone(item)]));
+  const uploads = new Map((seed.uploads || []).map(item => [item.storage_path, structuredClone(item)]));
+  const photoRepo = createMemoryPhotoRepository(uploads);
   const limits = new Map();
   const movedShopping = new Set();
   const batches = new Map();
@@ -127,9 +130,21 @@ export function createMemoryRepository(seed = {}) {
       return { active_food_count: active.length, urgent_food_count: active.filter(item => new Date(item.expiry_date).getTime() <= Date.now() + 2 * 86400000).length };
     },
     async listFoods(code) { assertTest(); return [...foods.values()].filter(item => item.room_code === code).map(item => structuredClone(item)); },
-    async createFood(food) { assertTest(); foods.set(food.id, structuredClone(food)); return structuredClone(food); },
+    async createFood(food) {
+      assertTest();
+      if (food.storage_path) await photoRepo.claimAttachment(null, food.room_code, food.storage_path, food.id);
+      foods.set(food.id, structuredClone(food)); return structuredClone(food);
+    },
     async getFood(id, code) { assertTest(); const item = foods.get(id); return item?.room_code === code ? structuredClone(item) : null; },
-    async updateFood(id, code, changes) { assertTest(); const item = foods.get(id); if (!item || item.room_code !== code) return null; Object.assign(item, structuredClone(changes)); return structuredClone(item); },
+    async updateFood(id, code, changes) {
+      assertTest();
+      const item = foods.get(id); if (!item || item.room_code !== code) return null;
+      if ('storage_path' in changes) {
+        await photoRepo.releaseForFood(null, code, id, changes.storage_path || null);
+        if (changes.storage_path) await photoRepo.claimAttachment(null, code, changes.storage_path, id);
+      }
+      Object.assign(item, structuredClone(changes)); return structuredClone(item);
+    },
     async consumeFood(id, code, actor, addToShopping) {
       assertTest();
       return locked(() => {
@@ -166,7 +181,12 @@ export function createMemoryRepository(seed = {}) {
         return structuredClone(response);
       });
     },
-    async deleteFood(id, code) { assertTest(); const item = foods.get(id); return Boolean(item?.room_code === code && foods.delete(id)); },
+    async deleteFood(id, code) {
+      assertTest();
+      const item = foods.get(id); if (!item || item.room_code !== code) return false;
+      if (item.storage_path) await photoRepo.releaseForFood(null, code, id, null);
+      return foods.delete(id);
+    },
     async listShopping(code) { assertTest(); return [...shoppingItems.values()].filter(item => item.room_code === code).map(item => structuredClone(item)); },
     async createShopping(item) { assertTest(); shoppingItems.set(item.id, structuredClone(item)); return structuredClone(item); },
     async getShopping(id, code) { assertTest(); const item = shoppingItems.get(id); return item?.room_code === code ? structuredClone(item) : null; },
@@ -194,6 +214,7 @@ export function createMemoryRepository(seed = {}) {
     },
     async listSubscriptions(code) { assertTest(); return [...subscribers.values()].filter(item => item.room_code === code).map(item => structuredClone(item)); },
     ...createMemoryPushRepository(subscribers),
+    ...photoRepo,
   };
 }
 
@@ -217,6 +238,7 @@ export function createPostgresRepository({ connectionString = process.env.DATABA
   if (!suppliedPool && !connectionString) throw new HttpError(503, 'DATABASE_UNAVAILABLE', 'Database service is not configured.');
   const pool = suppliedPool || new Pool({ connectionString, max: 5, connectionTimeoutMillis: 3000, idleTimeoutMillis: 10000, allowExitOnIdle: true });
   const ownsPool = !suppliedPool;
+  const photoRepo = createPhotoRepository(pool);
   // pg emits idle connection errors outside a request. Evicting them is pg's job;
   // the listener prevents a process crash and never logs connection credentials.
   if (ownsPool) pool.on('error', () => {});
@@ -291,6 +313,7 @@ export function createPostgresRepository({ connectionString = process.env.DATABA
     async listFoods(code) { return (await query('select * from public.foods where room_code=$1 order by added_date,id', [code])).rows.map(normalizeFood); },
     async createFood(food, pushActor = null) {
       return transaction(pool, async client => {
+      if (food.storage_path) await photoRepo.claimAttachment(client, food.room_code, food.storage_path, food.id);
       const row = (await client.query(`insert into public.foods(id,room_code,name,quantity,compartment,container_tag,added_date,expiry_date,status,photo_url,storage_path,notes,created_by,consumed_by,consumed_at)
         values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) returning *`,
       [food.id,food.room_code,food.name,food.quantity,food.compartment,food.container_tag,food.added_date,food.expiry_date,food.status,food.photo_url,food.storage_path||null,food.notes,food.created_by,food.consumed_by||null,food.consumed_at||null])).rows[0];
@@ -306,6 +329,10 @@ export function createPostgresRepository({ connectionString = process.env.DATABA
       const assignments = fields.map((field,index) => `${field}=$${index+3}`).join(',');
       return transaction(pool, async client => {
       const row = (await client.query(`update public.foods set ${assignments} where id=$1 and room_code=$2 returning *`, [id,code,...fields.map(field => changes[field])])).rows[0];
+      if (row && 'storage_path' in changes) {
+        await photoRepo.releaseForFood(client, code, id, changes.storage_path || null);
+        if (changes.storage_path) await photoRepo.claimAttachment(client, code, changes.storage_path, id);
+      }
       return normalizeFood(row);
       }, pushActor);
     },
@@ -347,7 +374,15 @@ export function createPostgresRepository({ connectionString = process.env.DATABA
         throw error;
       });
     },
-    async deleteFood(id, code, pushActor = null) { if (!isUuid(id)) return false; return transaction(pool, async client => (await client.query('delete from public.foods where id=$1 and room_code=$2', [id,code])).rowCount > 0, pushActor); },
+    async deleteFood(id, code, pushActor = null) {
+      if (!isUuid(id)) return false;
+      return transaction(pool, async client => {
+        const deleted = (await client.query('delete from public.foods where id=$1 and room_code=$2 returning storage_path', [id,code])).rows[0];
+        if (!deleted) return false;
+        if (deleted.storage_path) await photoRepo.releaseForFood(client, code, id, null);
+        return true;
+      }, pushActor);
+    },
     async listShopping(code) { return (await query('select * from public.shopping_items where room_code=$1 order by created_at,id', [code])).rows.map(normalizeShopping); },
     async createShopping(item, pushActor = null) { return transaction(pool, async client => normalizeShopping((await client.query(`insert into public.shopping_items(id,room_code,name,quantity,is_bought,created_at) values($1,$2,$3,$4,$5,$6) returning *`, [item.id,item.room_code,item.name,item.quantity,item.is_bought,item.created_at])).rows[0]), pushActor); },
     async getShopping(id, code) { if (!isUuid(id)) return null; return normalizeShopping((await query('select * from public.shopping_items where id=$1 and room_code=$2', [id,code])).rows[0]); },
@@ -384,6 +419,7 @@ export function createPostgresRepository({ connectionString = process.env.DATABA
     },
     async listSubscriptions(code) { return (await query('select * from public.push_subscriptions where room_code=$1 order by created_at,id', [code])).rows.map(row => ({ ...row, id: String(row.id), created_at: iso(row.created_at) })); },
     ...createPushRepository(pool),
+    ...photoRepo,
   };
 }
 

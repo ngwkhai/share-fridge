@@ -3560,7 +3560,18 @@
             }
           }
         },
-        "x-availability": "C025: returns 503 until durable photo storage is implemented."
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "minLength": 1
+            }
+          }
+        ]
       },
       "delete": {
         "summary": "DELETE /api/photos",
@@ -3684,12 +3695,12 @@
                   "storage_path": {
                     "type": "string"
                   }
-                }
+                },
+                "additionalProperties": false
               }
             }
           }
-        },
-        "x-availability": "C025: returns 503 until durable photo storage is implemented."
+        }
       }
     }
   },
@@ -4108,17 +4119,12 @@
             "minimum": 0,
             "maximum": 365
           },
-          "photo_url": {
-            "type": "string",
-            "maxLength": 8192,
-            "minLength": 0,
-            "nullable": true
-          },
           "storage_path": {
             "type": "string",
             "maxLength": 8192,
             "minLength": 0,
-            "nullable": true
+            "nullable": true,
+            "description": "An owned, staged storage_path from POST /api/photos. photo_url is never client-settable."
           },
           "notes": {
             "type": "string",
@@ -4172,17 +4178,12 @@
             "minLength": 0,
             "nullable": true
           },
-          "photo_url": {
-            "type": "string",
-            "maxLength": 8192,
-            "minLength": 0,
-            "nullable": true
-          },
           "storage_path": {
             "type": "string",
             "maxLength": 8192,
             "minLength": 0,
-            "nullable": true
+            "nullable": true,
+            "description": "An owned, staged storage_path from POST /api/photos, or null to remove the photo. photo_url is never client-settable."
           }
         },
         "minProperties": 1,

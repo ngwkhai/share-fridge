@@ -1,6 +1,6 @@
 import React from 'react';
 import { FoodItem } from '../types';
-import { Utensils, Tag, Clock, Trash2 } from 'lucide-react';
+import { Utensils, Tag, Clock, Trash2, ImageOff } from 'lucide-react';
 
 interface FoodCardProps {
   food: FoodItem;
@@ -54,6 +54,13 @@ export const FoodCard: React.FC<FoodCardProps> = ({ food, onConsume, onDelete })
               alt={food.name}
               className="w-13 h-13 rounded-2xl object-cover ring-1 ring-slate-200 shadow-xs shrink-0"
             />
+          ) : food.storage_path ? (
+            <div
+              className="w-13 h-13 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 shadow-xs shrink-0"
+              title="Ảnh tạm thời không khả dụng"
+            >
+              <ImageOff className="w-5 h-5" />
+            </div>
           ) : (
             <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200/80 border border-white flex items-center justify-center text-2xl shadow-xs shrink-0">
               {food.compartment === 'FREEZER' ? '❄️' : food.compartment === 'CRISPER' ? '🥬' : '🥘'}

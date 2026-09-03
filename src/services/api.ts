@@ -172,7 +172,7 @@ export const pushDevice = {
   clear(owner?: string) { if (!owner || this.get()?.owner===owner) localStorage.removeItem('sharefridge_push_device'); }
 };
 
-async function request<T>(path: string, validate: Guard<T>, options: { method?: string; body?: unknown; public?: boolean; token?: string; timeoutMs?: number } = {}): Promise<T> {
+async function request<T>(path: string, validate: Guard<T>, options: { method?: string; body?: unknown; public?: boolean; token?: string; timeoutMs?: number; headers?: Record<string,string> } = {}): Promise<T> {
   if (options.method && options.method !== 'GET' && typeof navigator !== 'undefined' && navigator.onLine === false) throw new ApiError('Đang ngoại tuyến. Kết nối mạng để lưu thay đổi.', 0, 'OFFLINE', path);
   let response: Response;
   const device=pushDevice.get(), current=sessionCache.get();
@@ -182,7 +182,7 @@ async function request<T>(path: string, validate: Guard<T>, options: { method?: 
       method: options.method || 'GET',
       cache: 'no-store',
       ...(options.timeoutMs ? {signal:AbortSignal.timeout(options.timeoutMs)} : {}),
-      headers: { ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(options.public ? {} : { Authorization: `Bearer ${options.token ?? getToken()}` }), ...(actor ? {'X-Push-Subscriber-Id':actor} : {}) },
+      headers: { ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(options.public ? {} : { Authorization: `Bearer ${options.token ?? getToken()}` }), ...(actor ? {'X-Push-Subscriber-Id':actor} : {}), ...(options.headers || {}) },
       body: options.body === undefined ? undefined : JSON.stringify(options.body)
     });
   } catch {
@@ -289,6 +289,12 @@ export const api = {
   },
   async getPushConfig(token?: string) {
     return request('/api/notifications/config',(x): x is {enabled:boolean;public_key:string|null} => object(x)&&typeof x.enabled==='boolean'&&(x.enabled ? nonempty(x.public_key) : x.public_key===null),{token,timeoutMs:8000});
+  },
+  async uploadPhoto(imageBase64: string, mimeType: 'image/jpeg'|'image/png'|'image/webp', idempotencyKey?: string) {
+    return request('/api/photos', (x): x is { photo_url: string; storage_path: string } => object(x) && nonempty(x.photo_url) && nonempty(x.storage_path), { method: 'POST', body: { image_base64: imageBase64, mime_type: mimeType }, headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}, timeoutMs: 15000 });
+  },
+  async removePhoto(storagePath: string) {
+    return request('/api/photos', (x): x is { success: true } => object(x) && x.success === true, { method: 'DELETE', body: { storage_path: storagePath }, timeoutMs: 8000 });
   },
   async unsubscribePush(endpoint:string,token?:string) {
     return request('/api/notifications/subscribe',(x): x is {success:true} => object(x)&&x.success===true,{method:'DELETE',body:{endpoint},token,timeoutMs:8000});

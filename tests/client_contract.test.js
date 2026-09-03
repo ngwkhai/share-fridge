@@ -248,12 +248,19 @@ test('all actual client HTTP responses match the corresponding runtime operation
 });
 
 test('future integrations expose explicit unavailable responses, config works without a database',async()=>{
-  for(const [path,method] of [['/api/auth/google','POST'],['/api/realtime-token','GET'],['/api/cron/expiry','GET'],['/api/photos','POST'],['/api/photos','DELETE']]) {
+  for(const [path,method] of [['/api/auth/google','POST'],['/api/realtime-token','GET'],['/api/cron/expiry','GET']]) {
     const result=await raw(path,method,method==='GET'?undefined:{});assert.equal(result.status,503,`${method} ${path}`);validateSchema('Error',result.body);
   }
   let status,body;
   await createApiHandler()({url:'/api/config',method:'GET',headers:{}},{writeHead:value=>status=value,end:value=>body=JSON.parse(value)});
   assert.equal(status,200);validateSchema('PublicConfig',body);assert.deepEqual(body,{google_client_id:null,capabilities:{google:false,push:false,photos:false,realtime:false}});
+});
+
+test('C025 photos: without SUPABASE_SERVICE_ROLE_KEY, upload is a clean 503, not a stub',async()=>{
+  const upload=await raw('/api/photos','POST',{image_base64:'AAAA',mime_type:'image/jpeg'});
+  assert.equal(upload.status,503);assert.equal(upload.body.code,'PHOTOS_UNAVAILABLE');
+  const remove=await raw('/api/photos','DELETE',{});
+  assert.equal(remove.status,400);assert.equal(remove.body.code,'INVALID_INPUT');
 });
 
 test('C024 push config/unsubscribe are implemented, not future stubs: no VAPID means disabled-but-served',async()=>{

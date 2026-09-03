@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CreateFoodDto, CompartmentType } from '../types';
 import { CameraCapture } from './CameraCapture';
+import { api } from '../services/api';
 import { X, Check } from 'lucide-react';
 
 interface QuickAddModalProps {
@@ -28,7 +29,8 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
   const [compartment, setCompartment] = useState<CompartmentType>(initialData?.compartment || 'FRIDGE_TOP');
   const [containerTag, setContainerTag] = useState(initialData?.container_tag || '');
   const [shelfDays, setShelfDays] = useState(initialData?.shelf_life_days ?? 3);
-  const [photoUrl, setPhotoUrl] = useState<string | null>(initialData?.photo_url || null);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [storagePath, setStoragePath] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   React.useEffect(() => {
@@ -55,7 +57,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
         compartment,
         container_tag: containerTag.trim() || undefined,
         shelf_life_days: shelfDays,
-        photo_url: photoUrl,
+        storage_path: storagePath,
         created_by: nickname
       });
       onClose();
@@ -63,9 +65,18 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
       setQuantity('');
       setContainerTag('');
       setPhotoUrl(null);
+      setStoragePath(null);
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // Closing without saving must not leave an uploaded-but-unattached photo behind.
+  const handleClose = () => {
+    if (storagePath) void api.removePhoto(storagePath).catch(() => {});
+    setPhotoUrl(null);
+    setStoragePath(null);
+    onClose();
   };
 
   return (
@@ -74,7 +85,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <h3 className="font-black text-slate-900 text-base tracking-tight">Thêm Món Mới</h3>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200"
           >
             <X className="w-4 h-4" />
@@ -188,7 +199,12 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
               ))}
             </div>
 
-            <CameraCapture photoUrl={photoUrl} onPhotoCaptured={setPhotoUrl} />
+            <CameraCapture
+              roomCode={roomCode}
+              photoUrl={photoUrl}
+              storagePath={storagePath}
+              onPhotoUploaded={result => { setPhotoUrl(result?.photo_url ?? null); setStoragePath(result?.storage_path ?? null); }}
+            />
           </div>
 
           <button

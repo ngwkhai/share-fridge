@@ -1,6 +1,7 @@
 import fs from 'fs';
 import { pushService, authorizeCron } from './push.js';
-import { foodDto, subscriptionDto, consumeBatchDto, text, boolean, compartment, fields, invalid } from './validation.js';
+import { photoService } from './photos.js';
+import { foodDto, subscriptionDto, consumeBatchDto, photoUploadDto, photoRemoveDto, text, boolean, compartment, fields, invalid } from './validation.js';
 import crypto from 'node:crypto';
 import { HttpError, readJsonBody, sendError } from './http.js';
 import path from 'path';
@@ -104,16 +105,24 @@ async function dispatchApiRequest(req, res, repository, integrations) {
     return true;
   }
   if (pathname === '/api/config' && method === 'GET') {
-    let realtime = false, push = false;
-    try { const repo=repository || (defaultRepository ??= createConfiguredRepository()); realtime = await realtimeAvailable(repo); push = (await (integrations.push || pushService).config(repo)).enabled; } catch {}
+    let realtime = false, push = false, photos = false;
+    try {
+      const repo=repository || (defaultRepository ??= createConfiguredRepository());
+      realtime = await realtimeAvailable(repo);
+      push = (await (integrations.push || pushService).config(repo)).enabled;
+      photos = (await (integrations.photos || photoService).config(repo)).enabled;
+    } catch {}
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ google_client_id: googleClientId(), capabilities: { google: !!googleClientId(), push, photos: false, realtime } }));
+    res.end(JSON.stringify({ google_client_id: googleClientId(), capabilities: { google: !!googleClientId(), push, photos, realtime } }));
     return true;
   }
   if (pathname === '/api/auth/google' && method === 'POST' && !googleClientId()) throw new HttpError(503, 'GOOGLE_UNAVAILABLE', 'Đăng nhập Google hiện chưa khả dụng. Hãy dùng tên và mã phòng.');
   if (pathname === '/api/cron/expiry' && method === 'GET') {
     authorizeCron(req.headers.authorization);
-    const result=await (integrations.push || pushService).cron(repository || (defaultRepository ??= createConfiguredRepository()));
+    const cronDb = repository || (defaultRepository ??= createConfiguredRepository());
+    const result=await (integrations.push || pushService).cron(cronDb);
+    // Photo cleanup is best-effort and never changes the push cron's own result shape.
+    try { await (integrations.photos || photoService).cleanup(cronDb); } catch {}
     res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(result));return true;
   }
   const needsDatabase = pathname !== '/healthz' && pathname !== '/api/openapi.json' && pathname.startsWith('/api/');
@@ -137,6 +146,10 @@ async function dispatchApiRequest(req, res, repository, integrations) {
     // a failed create response that could cause a duplicate user retry.
     try { const service=integrations.push || pushService; if ((await service.config(db)).enabled) await service.dispatch(db,session.room_code); } catch {}
   };
+  // storage_path is authoritative; photo_url is always recomputed at read time from a
+  // fresh signed URL and never trusted from a stored/client value.
+  const signFoods = async list => (integrations.photos || photoService).signFoods(db, list);
+  const signFood = async food => (await signFoods([food]))[0];
   // C026 will renew the nickname while retaining the existing room/profile/expiry.
   // Reserve the authenticated route now; do not report a session update before it exists.
   if (pathname === '/api/auth/session' && method === 'PATCH') throw new HttpError(503, 'SERVICE_UNAVAILABLE', 'Session updates are not available yet.');
@@ -268,15 +281,14 @@ async function dispatchApiRequest(req, res, repository, integrations) {
     const room_code = assertRoomAccess(url.searchParams.get('room_code'), session);
     const statusFilter = url.searchParams.get('status');
     if (statusFilter !== null && !['active','consumed'].includes(statusFilter)) invalid('status must be active or consumed.');
-    let items = await db.listFoods(room_code);
-    
-    items = items.map(publicFood);
+    let items = (await db.listFoods(room_code)).map(publicFood);
 
     if (statusFilter === 'active') {
       items = items.filter(f => f.status !== 'CONSUMED');
     } else if (statusFilter === 'consumed') {
       items = items.filter(f => f.status === 'CONSUMED');
     }
+    items = await signFoods(items);
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ items, total: items.length }));
@@ -303,7 +315,7 @@ async function dispatchApiRequest(req, res, repository, integrations) {
       expiry_date: expiryDate.toISOString(),
       days_remaining,
       status,
-      photo_url: validated.photo_url ?? null,
+      photo_url: null,
       storage_path: validated.storage_path ?? null,
       notes: validated.notes ?? null,
       created_by: session.nickname
@@ -312,7 +324,7 @@ async function dispatchApiRequest(req, res, repository, integrations) {
     await db.createFood(food, pushActor);
     await dispatchChanges();
     res.writeHead(201, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(food));
+    res.end(JSON.stringify(await signFood(food)));
     return true;
   }
 
@@ -326,7 +338,7 @@ async function dispatchApiRequest(req, res, repository, integrations) {
     await dispatchChanges();
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(food));
+    res.end(JSON.stringify(await signFood(food)));
     return true;
   }
 
@@ -336,7 +348,7 @@ async function dispatchApiRequest(req, res, repository, integrations) {
     const updated = publicFood(requireItem(await db.updateFood(foodEditMatch[1], session.room_code, data, pushActor)));
     await dispatchChanges();
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(updated));
+    res.end(JSON.stringify(await signFood(updated)));
     return true;
   }
 
@@ -390,7 +402,7 @@ async function dispatchApiRequest(req, res, repository, integrations) {
     const result = await db.consumeBatch(data.food_ids, session.room_code, session.nickname, data.add_to_shopping_list, data.idempotency_key, pushActor);
     await dispatchChanges();
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ...result, items: result.items.map(publicFood) }));
+    res.end(JSON.stringify({ ...result, items: await signFoods(result.items.map(publicFood)) }));
     return true;
   }
 
@@ -472,7 +484,23 @@ async function dispatchApiRequest(req, res, repository, integrations) {
     return true;
   }
 
-  if ((pathname === '/api/photos' && ['POST','DELETE'].includes(method))) throw new HttpError(503, 'SERVICE_UNAVAILABLE', 'This integration is not available yet.');
+  // 9. Photos
+  if (pathname === '/api/photos' && method === 'POST') {
+    const data = photoUploadDto(await parseJsonBody());
+    const idempotencyKey = req.headers['idempotency-key'];
+    if (idempotencyKey !== undefined && (typeof idempotencyKey !== 'string' || !idempotencyKey.trim() || idempotencyKey.length > 200)) invalid('Idempotency-Key must contain 1 to 200 characters.');
+    const result = await (integrations.photos || photoService).upload(db, session.room_code, data.image_base64, data.mime_type, idempotencyKey);
+    res.writeHead(201, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(result));
+    return true;
+  }
+  if (pathname === '/api/photos' && method === 'DELETE') {
+    const data = photoRemoveDto(await parseJsonBody());
+    const result = await (integrations.photos || photoService).remove(db, session.room_code, data.storage_path);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(result));
+    return true;
+  }
 
   return false;
 }

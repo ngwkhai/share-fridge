@@ -22,14 +22,16 @@ export function fields(data, allowed) {
   if (Object.keys(data).some(key => !allowed.includes(key))) invalid('Request contains unsupported fields.');
 }
 export function foodDto(data, update = false) {
-  const editable = ['name','quantity','compartment','container_tag','expiry_date','notes','photo_url','storage_path'];
+  // C025: photo_url is never client-settable. Signed URLs are computed server-side
+  // from an owned storage_path at read time and never persisted or trusted from input.
+  const editable = ['name','quantity','compartment','container_tag','expiry_date','notes','storage_path'];
   fields(data, update ? editable : [...editable.filter(key => key !== 'expiry_date'),'room_code','shelf_life_days','created_by']);
   const result = {};
   if (!update && data.created_by !== undefined && typeof data.created_by !== 'string') invalid('created_by must be a string.');
   if (!update || data.name !== undefined) result.name = text(data.name, 'name', 200);
   if (!update || data.compartment !== undefined) result.compartment = compartment(data.compartment);
   for (const key of ['quantity','container_tag']) if (data[key] !== undefined) result[key] = text(data[key], key, 200, { empty: true });
-  for (const key of ['notes','photo_url','storage_path']) if (data[key] !== undefined) result[key] = text(data[key], key, key === 'notes' ? 2000 : 8192, { nullable: true, empty: true });
+  for (const key of ['notes','storage_path']) if (data[key] !== undefined) result[key] = text(data[key], key, key === 'notes' ? 2000 : 8192, { nullable: true, empty: true });
   if (!update) {
     if (!Number.isInteger(data.shelf_life_days) || data.shelf_life_days < 0 || data.shelf_life_days > 365) invalid('shelf_life_days must be an integer from 0 to 365.');
     result.shelf_life_days = data.shelf_life_days;
@@ -57,6 +59,17 @@ export function subscriptionDto(data) {
   const auth = text(keys.auth, 'subscription.keys.auth', 4096);
   const p256dh = text(keys.p256dh, 'subscription.keys.p256dh', 4096);
   return { subscription: validatePushSubscription({ endpoint, keys: { auth, p256dh } }), device_name: text(data.device_name, 'device_name', 100, { optional: true, empty: true }) };
+}
+
+export function photoUploadDto(data) {
+  fields(data, ['image_base64', 'mime_type']);
+  const mimeType = data.mime_type;
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) invalid('mime_type must be image/jpeg, image/png or image/webp.');
+  return { image_base64: text(data.image_base64, 'image_base64', 200000), mime_type: mimeType };
+}
+export function photoRemoveDto(data) {
+  fields(data, ['storage_path']);
+  return { storage_path: text(data.storage_path, 'storage_path', 8192) };
 }
 
 export function consumeBatchDto(data) {

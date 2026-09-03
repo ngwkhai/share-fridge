@@ -9,11 +9,13 @@
     "preview": "vite preview",
     "test": "node --test tests/*.test.js",
     "db:migrate": "node scripts/migrate.js",
+    "backfill:photos": "node scripts/backfill-photos.js",
     "test:postgres": "node --test --test-timeout=60000 tests/postgres.integration.js",
     "api:spec": "node server/build-openapi.js",
     "test:client-postgres": "node --test --test-timeout=60000 tests/client_postgres.integration.js",
     "test:sync-postgres": "node --test --test-timeout=60000 tests/sync_postgres.integration.js",
-    "test:ai-postgres": "node --test --test-timeout=60000 tests/ai_postgres.integration.js"
+    "test:ai-postgres": "node --test --test-timeout=60000 tests/ai_postgres.integration.js",
+    "test:photos-postgres": "node --test --test-timeout=60000 tests/photos_postgres.integration.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.114.0",
@@ -24,6 +26,7 @@
     "pg": "^8.23.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "sharp": "^0.35.4",
     "tailwind-merge": "^3.5.0",
     "web-push": "^3.6.7"
   },

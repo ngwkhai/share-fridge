@@ -6,6 +6,7 @@ export async function runMigrations(pool) {
   try {
     await client.query(sql);
     await client.query(await fs.readFile(new URL('../supabase/push.sql', import.meta.url), 'utf8'));
+    await client.query(await fs.readFile(new URL('../supabase/photos.sql', import.meta.url), 'utf8'));
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     throw error;

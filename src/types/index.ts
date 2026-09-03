@@ -39,7 +39,7 @@ export interface CreateFoodDto {
   compartment: CompartmentType;
   container_tag?: string;
   shelf_life_days: number;
-  photo_url?: string | null;
+  // An owned, staged storage_path from api.uploadPhoto(); photo_url is never client-settable.
   storage_path?: string | null;
   notes?: string | null;
   created_by?: string;
@@ -85,7 +85,7 @@ export interface UpdateFoodDto {
   container_tag?: string;
   expiry_date?: string;
   notes?: string | null;
-  photo_url?: string | null;
+  // An owned, staged storage_path, or null to remove the photo; never client-settable photo_url.
   storage_path?: string | null;
 }
 

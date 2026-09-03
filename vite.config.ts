@@ -49,11 +49,11 @@ export default defineConfig({
         importScripts: ['sw-push.js']
       },
       manifest: {
-        name: 'ShareFridge - Quản lý tủ lạnh phòng trọ',
+        name: 'ShareFridge — Tủ Lạnh Phòng Trọ',
         short_name: 'ShareFridge',
-        description: 'Quản lý kho thực phẩm dùng chung cho phòng trọ',
+        description: 'Quản lý kho thực phẩm dùng chung cho phòng trọ với AI gợi ý món ăn và cảnh báo hạn dùng.',
         theme_color: '#10b981',
-        background_color: '#f8fafc',
+        background_color: '#090d16',
         display: 'standalone',
         orientation: 'portrait',
         icons: [
