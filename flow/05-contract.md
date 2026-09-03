@@ -27,6 +27,7 @@ Room auth is `Authorization: Bearer <room-token>`. Verify signature/expiry/room 
 | POST | `/api/auth/join-room` | public/rate-limit | `{code:string,passcode:string,nickname?:string,google_identity_token?:string}` | `AuthSession` |
 | POST | `/api/auth/verify-token` | supplied room token | `{token:string}` | `{valid:true,payload:SessionPayload,room:Room}`; invalid 401 `{valid:false,error,code}` |
 | POST | `/api/auth/google` | Google credential | `{credential:string}` | `{profile:GoogleProfile,identity_token:string,expires_at:string}` |
+| PATCH | `/api/auth/session` | valid room token | `{nickname:string}` | `AuthSession`; replace nickname, retain room/Google profile and original session expiry |
 | POST | `/api/rooms` | public/rate-limit | same validated create fields, passcode required | `Room`, 201; legacy alias never overwrites password |
 | GET | `/api/rooms/:code` | matching room token | none | `RoomDetail` |
 | GET | `/api/foods` | room token | `?room_code=string&status=active|consumed` | `{items:FoodItem[],total:number}` |
@@ -92,6 +93,8 @@ Bounds: room code exactly six digits; passcode four to six digits. Nonempty food
 Batch consume accepts 1..50 unique food IDs and an idempotency key of 1..200 characters. Reject duplicate IDs or requests above the bound before locking/writing; replay requires the same canonical IDs and options.
 
 Google identity supplements PIN membership and cannot grant a room itself. Use GOOGLE_CLIENT_ID server configuration and verified identity tokens; only the public client ID is exposed. Session stores must retain verified profile on create/join and reload.
+
+C-026 nickname correction: PATCH /api/auth/session requires the existing valid room token and room membership, accepts only a nonempty nickname <=100 characters, and returns the standard AuthSession with a newly signed token retaining the original expiry and Google profile. It cannot alter room membership or extend the session lifetime. The client atomically replaces the matching current session and rejects late responses after logout/room changes; Settings reports success only after the server accepts. Subsequent food actors use the new verified nickname. Previously issued tokens retain their existing validity/expiry; this endpoint does not claim global token revocation.
 
 ## Architecture and acceptance
 
