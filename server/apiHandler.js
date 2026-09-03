@@ -6,6 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { hashPasscode, verifyPasscode, generateSessionToken, verifySessionToken } from './security.js';
 import { createConfiguredRepository } from './repository.js';
+import { realtimeAvailable, issueRealtimeToken } from './realtime.js';
 import { suggestRecipesWithGemini, parseVoiceWithGemini } from './geminiService.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -101,22 +102,24 @@ async function dispatchApiRequest(req, res, repository) {
     return true;
   }
   if (pathname === '/api/config' && method === 'GET') {
+    let realtime = false;
+    try { realtime = await realtimeAvailable(repository || (defaultRepository ??= createConfiguredRepository())); } catch {}
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ google_client_id: null, capabilities: { google: false, push: false, photos: false, realtime: false } }));
+    res.end(JSON.stringify({ google_client_id: null, capabilities: { google: false, push: false, photos: false, realtime } }));
     return true;
   }
   if ((pathname === '/api/auth/google' && method === 'POST') || (pathname === '/api/cron/expiry' && method === 'GET')) throw new HttpError(503, 'SERVICE_UNAVAILABLE', 'This integration is not available yet.');
   const needsDatabase = pathname !== '/healthz' && pathname !== '/api/openapi.json' && pathname.startsWith('/api/');
   let db = repository;
   const resolveDb = () => db ??= defaultRepository ??= createConfiguredRepository();
-  let session;
+  let session, sessionRoom;
   // A single gate covers every current and future route in a room namespace.
   const protectedPath = /^\/api\/(?:rooms\/|foods(?:\/|$)|shopping-items(?:\/|$)|ai(?:\/|$)|notifications(?:\/|$)|photos(?:\/|$)|realtime-token(?:\/|$))/.test(pathname);
   if (protectedPath) {
     const auth = req.headers.authorization;
     const match = typeof auth === 'string' && auth.match(/^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/i);
     session = match ? verifySessionToken(match[1]) : null;
-    if (!session || !(await resolveDb().getRoom(session.room_code))) throw new HttpError(401, 'UNAUTHORIZED', 'A valid room session is required.');
+    if (!session || !(sessionRoom = await resolveDb().getRoom(session.room_code))) throw new HttpError(401, 'UNAUTHORIZED', 'A valid room session is required.');
     for (const code of url.searchParams.getAll('room_code')) assertRoomAccess(code, session);
   }
   if (needsDatabase) db = resolveDb();
@@ -128,6 +131,13 @@ async function dispatchApiRequest(req, res, repository) {
     });
     return bodyPromise;
   };
+
+  if (pathname === '/api/realtime-token' && method === 'GET') {
+    if (!(await realtimeAvailable(db))) throw new HttpError(503, 'REALTIME_UNAVAILABLE', 'Room synchronization is not configured.');
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(issueRealtimeToken(sessionRoom, session)));
+    return true;
+  }
 
   // 1. Healthz
   if (pathname === '/healthz' && method === 'GET') {
@@ -404,7 +414,7 @@ async function dispatchApiRequest(req, res, repository) {
     return true;
   }
 
-  if ((pathname === '/api/foods/consume-batch' && method === 'POST') || (pathname === '/api/realtime-token' && method === 'GET') || (pathname === '/api/notifications/config' && method === 'GET') || (pathname === '/api/notifications/subscribe' && method === 'DELETE') || (pathname === '/api/photos' && ['POST','DELETE'].includes(method))) throw new HttpError(503, 'SERVICE_UNAVAILABLE', 'This integration is not available yet.');
+  if ((pathname === '/api/foods/consume-batch' && method === 'POST') || (pathname === '/api/notifications/config' && method === 'GET') || (pathname === '/api/notifications/subscribe' && method === 'DELETE') || (pathname === '/api/photos' && ['POST','DELETE'].includes(method))) throw new HttpError(503, 'SERVICE_UNAVAILABLE', 'This integration is not available yet.');
 
   return false;
 }

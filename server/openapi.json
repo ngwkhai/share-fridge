@@ -2718,7 +2718,7 @@
     },
     "/api/realtime-token": {
       "get": {
-        "summary": "GET /api/realtime-token",
+        "summary": "Issue a short-lived room-scoped authenticated Realtime JWT",
         "security": [
           {
             "RoomBearer": []
@@ -2826,7 +2826,7 @@
             }
           }
         },
-        "x-availability": "C021: returns 503 until room-scoped realtime is implemented."
+        "x-availability": "Requires migrated Supabase PostgreSQL and matching legacy HS256 project secret/anon JWT. Returns 503 otherwise; tokens expire within five minutes."
       }
     },
     "/api/notifications/config": {

@@ -1,0 +1,44 @@
+- banner:
+  - img "ShareFridge"
+  - heading "Kiểm thử C021" [level=1]
+  - status: Cập nhật định kỳ
+  - 'button "C020 Browser Audit #644780"':
+    - generic: C020 Browser Audit
+    - generic: "#644780"
+  - button "Cài đặt phòng & tài khoản":
+  - button "Thông báo":
+  - button "Làm mới":
+- main:
+  - button "Tất cả 0":
+    - generic: Tất cả
+    - generic: "0"
+  - button "Nấu gấp 0":
+    - generic: Nấu gấp
+    - generic: "0"
+  - button "Ngăn đông 0":
+    - generic: Ngăn đông
+    - generic: "0"
+  - button "Cần mua 0":
+    - generic: Cần mua
+    - generic: "0"
+  - textbox "Tìm nhanh trong tủ..."
+  - button "Tất cả"
+  - button "⚠️ Nấu gấp"
+  - button "❄️ Ngăn đông"
+  - button "🥩 Ngăn mát"
+  - button "🥬 Hộc rau"
+  - button "🥚 Cánh tủ"
+  - generic: 🥗
+  - heading "Chưa có món nào ở mục này" [level=4]
+  - button "Thêm món ngay":
+    - generic: Thêm món ngay
+- button "Tủ lạnh":
+  - generic: Tủ lạnh
+- button "Nấu gì?":
+  - generic: Nấu gì?
+- button:
+- button:
+- button "Đi chợ":
+  - generic: Đi chợ
+- button "Đã dùng":
+  - generic: Đã dùng

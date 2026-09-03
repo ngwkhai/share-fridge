@@ -1,0 +1,11 @@
+✔ App first load and retry never claim an empty fridge (cached room) (29.924583ms)
+✔ App first load and retry never claim an empty fridge (legacy room-less session) (6.521458ms)
+✔ App keeps the last complete snapshot visible when refreshing fails (3.157833ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 545.315916

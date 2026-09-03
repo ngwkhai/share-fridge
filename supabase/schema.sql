@@ -129,5 +129,64 @@ begin
     end if;
   end if;
 end $realtime$;
+-- C-021: invalidate whole room snapshots, including hard deletes, without
+-- broadcasting raw DELETE records. Keep changes in the source transaction.
+create table if not exists public.room_sync_versions (
+  room_code varchar(10) primary key references public.rooms(code) on delete cascade,
+  revision bigint not null default 0 check(revision >= 0),
+  changed_at timestamptz not null default now()
+);
+alter table public.room_sync_versions enable row level security;
+revoke all on public.room_sync_versions from public;
+drop policy if exists room_sync_read on public.room_sync_versions;
+create policy room_sync_read on public.room_sync_versions for select using (
+  room_code = (nullif(current_setting('request.jwt.claims',true),'')::jsonb ->> 'room_code')
+);
+insert into public.room_sync_versions(room_code) select code from public.rooms on conflict do nothing;
+create or replace function sharefridge_private.bump_room_sync() returns trigger
+language plpgsql security definer set search_path = pg_catalog as $sync$
+declare codes text[]; target text;
+begin
+  if TG_OP = 'INSERT' then codes := array[NEW.room_code];
+  elsif TG_OP = 'DELETE' then codes := array[OLD.room_code];
+  else codes := array[OLD.room_code,NEW.room_code]; end if;
+  for target in select distinct unnest(codes) order by 1 loop
+    -- During cascading room deletion the parent may already be absent.
+    insert into public.room_sync_versions(room_code,revision,changed_at)
+      select target,1,clock_timestamp() where exists(select 1 from public.rooms where code=target)
+      on conflict(room_code) do update set revision=public.room_sync_versions.revision+1,changed_at=excluded.changed_at;
+  end loop;
+  return null;
+end $sync$;
+revoke all on function sharefridge_private.bump_room_sync() from public;
+drop trigger if exists foods_room_sync on public.foods;
+create trigger foods_room_sync after insert or update or delete on public.foods for each row execute function sharefridge_private.bump_room_sync();
+drop trigger if exists shopping_room_sync on public.shopping_items;
+create trigger shopping_room_sync after insert or update or delete on public.shopping_items for each row execute function sharefridge_private.bump_room_sync();
+do $sync_grants$
+declare role_name text;
+begin
+  foreach role_name in array array['anon','authenticated'] loop
+    if exists(select 1 from pg_roles where rolname=role_name) then
+      execute format('revoke all on public.room_sync_versions from %I',role_name);
+      execute format('revoke all on function sharefridge_private.bump_room_sync() from %I',role_name);
+    end if;
+  end loop;
+  if exists(select 1 from pg_roles where rolname='authenticated') then
+    grant select on public.room_sync_versions to authenticated;
+  end if;
+  if exists(select 1 from pg_publication where pubname='supabase_realtime' and not puballtables) then
+    if exists(select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='foods') then
+      alter publication supabase_realtime drop table public.foods;
+    end if;
+    if exists(select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='shopping_items') then
+      alter publication supabase_realtime drop table public.shopping_items;
+    end if;
+    if not exists(select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='room_sync_versions') then
+      alter publication supabase_realtime add table public.room_sync_versions;
+    end if;
+  end if;
+end $sync_grants$;
+insert into sharefridge_private.schema_migrations(version) values('002_room_sync') on conflict(version) do nothing;
 insert into sharefridge_private.schema_migrations(version) values('001_durable_repository') on conflict(version) do nothing;
 commit;

@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { api } from './services/api';
-import { FoodItem, RoomDetail, CreateFoodDto, ParsedFoodItem, RecipeSuggestion, ShoppingItem } from './types';
+import { CreateFoodDto, ParsedFoodItem, RecipeSuggestion } from './types';
 import { Header } from './components/Header';
 import { PulseStrip } from './components/PulseStrip';
 import { FilterBar, FilterCategory } from './components/FilterBar';
@@ -13,35 +13,27 @@ import { BottomNav, TabType } from './components/BottomNav';
 import { NotificationModal } from './components/NotificationModal';
 import { SettingsModal } from './components/SettingsModal';
 import { GoogleAuthButton, GoogleUserProfile } from './components/GoogleAuthButton';
-import { createRealtimeSubscription } from './services/supabaseClient';
+import { useRoomSync } from './hooks/useRoomSync';
 import { PlusCircle, Search, Lock, User, ArrowRight } from 'lucide-react';
 
 export default function App() {
-  // SWR Instant Boot from Session Cache
-  const initialCache = api.sessionCache.get();
-  const [roomCode, setRoomCode] = useState<string>(() => initialCache?.code || '');
-  const [room, setRoom] = useState<RoomDetail | null>(() => {
-    if (initialCache) {
-      return {
-        id: `room-${initialCache.code}`,
-        code: initialCache.code,
-        name: initialCache.name,
-        created_at: new Date(initialCache.cached_at).toISOString(),
-        active_food_count: 0,
-        urgent_food_count: 0
-      };
-    }
-    return null;
-  });
-  const [currentPasscode, setCurrentPasscode] = useState<string>(() => initialCache?.passcode || '1234');
-  const [currentNickname, setCurrentNickname] = useState<string>(() => initialCache?.nickname || 'Khải');
-  const [googleEmail, setGoogleEmail] = useState<string | undefined>(() => initialCache?.google_email);
-  const [userAvatar, setUserAvatar] = useState<string | undefined>(() => initialCache?.user_avatar);
-
-  // Local-First Persistent State Initialization
-  const [foods, setFoods] = useState<FoodItem[]>(() => (initialCache?.code ? api.foodCache.getFoods(initialCache.code) : []));
-  const [consumedFoods, setConsumedFoods] = useState<FoodItem[]>(() => (initialCache?.code ? api.foodCache.getConsumed(initialCache.code) : []));
-  const [shoppingItems, setShoppingItems] = useState<ShoppingItem[]>(() => (initialCache?.code ? api.foodCache.getShopping(initialCache.code) : []));
+  const sync = useRoomSync();
+  const initialCache = sync.session;
+  const roomCode = initialCache?.code || '';
+  const room = sync.snapshot?.room || (initialCache?.room ? { ...initialCache.room, active_food_count: 0, urgent_food_count: 0 } : null);
+  const foods = sync.snapshot?.foods || [];
+  const consumedFoods = sync.snapshot?.consumed || [];
+  const shoppingItems = sync.snapshot?.shopping || [];
+  const [currentPasscode, setCurrentPasscode] = useState('');
+  const [currentNickname, setCurrentNickname] = useState('Bạn cùng phòng');
+  const [googleEmail, setGoogleEmail] = useState<string | undefined>();
+  const [userAvatar, setUserAvatar] = useState<string | undefined>();
+  useEffect(() => {
+    setCurrentPasscode(initialCache?.passcode || '');
+    setCurrentNickname(initialCache?.nickname || 'Bạn cùng phòng');
+    setGoogleEmail(initialCache?.google_email);
+    setUserAvatar(initialCache?.user_avatar);
+  }, [initialCache]);
 
   const [activeFilter, setActiveFilter] = useState<FilterCategory>('ALL');
   const [currentTab, setCurrentTab] = useState<TabType>('FRIDGE');
@@ -64,99 +56,9 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Load Room Data with Local-First Guard
-  const loadData = useCallback(async (code: string) => {
-    if (!code) return;
-    try {
-      const roomData = await api.getRoom(code);
-      setRoom(roomData);
-      setRoomCode(code);
-
-      const [activeData, consumedData, shopData] = await Promise.all([
-        api.getFoods(code, 'active'),
-        api.getFoods(code, 'consumed'),
-        api.getShoppingItems(code)
-      ]);
-
-      // Guard against cold-start empty returns
-      if (activeData.items.length > 0) {
-        setFoods(activeData.items);
-        api.foodCache.saveFoods(code, activeData.items);
-      } else {
-        const cached = api.foodCache.getFoods(code);
-        if (cached.length > 0) {
-          setFoods(cached);
-          // Silently re-seed serverless memory
-          for (const f of cached) {
-            api.addFood({
-              room_code: code,
-              name: f.name,
-              quantity: f.quantity,
-              compartment: f.compartment,
-              container_tag: f.container_tag,
-              shelf_life_days: f.days_remaining || 3,
-              photo_url: f.photo_url,
-              created_by: f.created_by
-            }).catch(() => {});
-          }
-        }
-      }
-
-      if (consumedData.items.length > 0) {
-        setConsumedFoods(consumedData.items);
-        api.foodCache.saveConsumed(code, consumedData.items);
-      }
-
-      if (shopData.items.length > 0) {
-        setShoppingItems(shopData.items);
-        api.foodCache.saveShopping(code, shopData.items);
-      } else {
-        const cachedShop = api.foodCache.getShopping(code);
-        if (cachedShop.length > 0) {
-          setShoppingItems(cachedShop);
-        }
-      }
-    } catch (err: any) {
-      console.warn('Silent data load issue:', err);
-    }
-  }, []);
-
-  // Background SWR Verification
   useEffect(() => {
-    if (roomCode) {
-      loadData(roomCode);
-      api.verifyToken().then((res) => {
-        if (!res.valid && !initialCache) {
-          handleLogout();
-        }
-      }).catch(() => {});
-    }
-  }, [roomCode, loadData]);
-
-  // Realtime subscription with Local-First Guard (no flashing)
-  useEffect(() => {
-    if (!roomCode || !room) return;
-    const unsubscribe = createRealtimeSubscription(
-      roomCode,
-      () => {
-        api.getFoods(roomCode, 'active').then((res) => {
-          if (res.items.length > 0) {
-            setFoods(res.items);
-            api.foodCache.saveFoods(roomCode, res.items);
-          }
-        }).catch(() => {});
-      },
-      () => {
-        api.getShoppingItems(roomCode).then((res) => {
-          if (res.items.length > 0) {
-            setShoppingItems(res.items);
-            api.foodCache.saveShopping(roomCode, res.items);
-          }
-        }).catch(() => {});
-      }
-    );
-    return () => unsubscribe();
-  }, [roomCode, room]);
+    setIsQuickAddOpen(false); setIsVoiceOpen(false); setIsRecipeOpen(false); setIsNotifOpen(false); setIsSettingsOpen(false); setVoiceDraftData(undefined); setError('');
+  }, [initialCache?.token]);
 
   const handleCreateRoom = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -167,28 +69,7 @@ export default function App() {
       const rName = newRoomName.trim() || 'Phòng mới';
       const nick = inputNickname.trim() || 'Khải';
 
-      const result = await api.createRoomWithPasscode(undefined, rName, pCode, nick);
-
-      const newRoom: RoomDetail = {
-        id: result.room.id,
-        code: result.room.code,
-        name: result.room.name,
-        created_at: result.room.created_at,
-        active_food_count: 0,
-        urgent_food_count: 0
-      };
-
-      setRoom(newRoom);
-      setRoomCode(result.room.code);
-      setCurrentPasscode(pCode);
-      setCurrentNickname(nick);
-      setFoods([]);
-      setConsumedFoods([]);
-      setShoppingItems([]);
-      api.foodCache.saveFoods(result.room.code, []);
-      api.foodCache.saveShopping(result.room.code, []);
-
-      loadData(result.room.code);
+      await api.createRoomWithPasscode(undefined, rName, pCode, nick);
     } catch (err: any) {
       setError(err.message || 'Lỗi tạo phòng');
     } finally {
@@ -205,23 +86,7 @@ export default function App() {
       const pCode = inputPasscode.trim() || '1234';
       const nick = inputNickname.trim() || 'Khải';
 
-      const result = await api.joinRoomWithPasscode(inputCode.trim(), pCode, nick);
-
-      const joinedRoom: RoomDetail = {
-        id: result.room.id,
-        code: result.room.code,
-        name: result.room.name,
-        created_at: result.room.created_at,
-        active_food_count: 0,
-        urgent_food_count: 0
-      };
-
-      setRoom(joinedRoom);
-      setRoomCode(result.room.code);
-      setCurrentPasscode(pCode);
-      setCurrentNickname(nick);
-
-      await loadData(result.room.code);
+      await api.joinRoomWithPasscode(inputCode.trim(), pCode, nick);
     } catch (err: any) {
       setError(err.message || 'Không thể tham gia phòng');
     } finally {
@@ -230,15 +95,10 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    api.sessionCache.clear();
-    setRoom(null);
-    setRoomCode('');
-    setCurrentPasscode('1234');
-    setGoogleEmail(undefined);
-    setUserAvatar(undefined);
-    setFoods([]);
-    setConsumedFoods([]);
-    setShoppingItems([]);
+    sync.logout();
+    setIsQuickAddOpen(false); setIsVoiceOpen(false); setIsRecipeOpen(false);
+    setIsNotifOpen(false); setIsSettingsOpen(false); setVoiceDraftData(undefined);
+    setInputPasscode(''); setError('');
   };
 
   const handleGoogleSuccess = (profile: GoogleUserProfile) => {
@@ -265,51 +125,24 @@ export default function App() {
     }
   };
 
-  // Actions
-  const handleAddFood = async (dto: CreateFoodDto) => {
-    const newFood = await api.addFood({ ...dto, created_by: currentNickname });
-    setFoods(prev => {
-      const updated = [newFood, ...prev];
-      api.foodCache.saveFoods(roomCode, updated);
-      return updated;
-    });
-    setVoiceDraftData(undefined);
-  };
-
-  const handleConsumeFood = async (id: string) => {
-    const updated = await api.consumeFood(id, undefined, true);
-    setFoods(prev => {
-      const filtered = prev.filter(f => f.id !== id);
-      api.foodCache.saveFoods(roomCode, filtered);
-      return filtered;
-    });
-    setConsumedFoods(prev => {
-      const updatedConsumed = [updated, ...prev];
-      api.foodCache.saveConsumed(roomCode, updatedConsumed);
-      return updatedConsumed;
-    });
-    const shopData = await api.getShoppingItems(roomCode);
-    if (shopData.items.length > 0) {
-      setShoppingItems(shopData.items);
-      api.foodCache.saveShopping(roomCode, shopData.items);
+  // Data changes are accepted only after server success and a guarded refresh.
+  const runMutation = async <T,>(operation: () => Promise<T>): Promise<T> => {
+    setError('');
+    try { return await sync.mutate(operation); }
+    catch (err) {
+      if (!(err instanceof Error && 'code' in err && err.code === 'SESSION_CHANGED')) setError(err instanceof Error ? err.message : 'Không thể lưu thay đổi.');
+      throw err;
     }
   };
-
-  const handleDeleteFood = async (id: string) => {
-    await api.deleteFood(id);
-    setFoods(prev => {
-      const filtered = prev.filter(f => f.id !== id);
-      api.foodCache.saveFoods(roomCode, filtered);
-      return filtered;
-    });
-    setConsumedFoods(prev => {
-      const filtered = prev.filter(f => f.id !== id);
-      api.foodCache.saveConsumed(roomCode, filtered);
-      return filtered;
-    });
+  const handleAddFood = async (dto: CreateFoodDto) => {
+    await runMutation(() => api.addFood({ ...dto, created_by: currentNickname }));
+    setVoiceDraftData(undefined);
   };
+  const handleConsumeFood = async (id: string) => { await runMutation(() => api.consumeFood(id, undefined, true)); };
+  const handleDeleteFood = async (id: string) => { await runMutation(() => api.deleteFood(id)); };
 
   const handleVoiceParsed = (parsed: ParsedFoodItem) => {
+    if (!initialCache || api.sessionCache.get()?.token !== initialCache.token) return;
     setVoiceDraftData({
       name: parsed.name,
       quantity: parsed.quantity,
@@ -322,40 +155,21 @@ export default function App() {
   };
 
   const handleCookRecipe = async (recipe: RecipeSuggestion) => {
-    for (const name of recipe.ingredients_used) {
-      const match = foods.find(f => f.name.toLowerCase().includes(name.toLowerCase()));
-      if (match) {
-        await api.consumeFood(match.id, undefined, false);
+    await runMutation(async () => {
+      for (const name of recipe.ingredients_used) {
+        const match = foods.find(f => f.name.toLowerCase().includes(name.toLowerCase()));
+        if (match) await api.consumeFood(match.id, undefined, false);
       }
-    }
-    await loadData(roomCode);
+    });
   };
-
   const handleAddShoppingItem = async (name: string, quantity?: string) => {
-    const item = await api.addShoppingItem({ room_code: roomCode, name, quantity });
-    setShoppingItems(prev => {
-      const updated = [item, ...prev];
-      api.foodCache.saveShopping(roomCode, updated);
-      return updated;
-    });
+    await runMutation(() => api.addShoppingItem({ room_code: roomCode, name, quantity }));
   };
-
   const handleToggleShoppingItem = async (id: string, isBought: boolean) => {
-    const updated = await api.toggleShoppingItem(id, isBought);
-    setShoppingItems(prev => {
-      const list = prev.map(i => (i.id === id ? updated : i));
-      api.foodCache.saveShopping(roomCode, list);
-      return list;
-    });
+    try { await runMutation(() => api.toggleShoppingItem(id, isBought)); } catch { /* Error remains visible above the room. */ }
   };
-
   const handleDeleteShoppingItem = async (id: string) => {
-    await api.deleteShoppingItem(id);
-    setShoppingItems(prev => {
-      const filtered = prev.filter(i => i.id !== id);
-      api.foodCache.saveShopping(roomCode, filtered);
-      return filtered;
-    });
+    try { await runMutation(() => api.deleteShoppingItem(id)); } catch { /* Error remains visible above the room. */ }
   };
 
   // Filter & Search Logic
@@ -388,17 +202,20 @@ export default function App() {
           roomName={room.name}
           nickname={currentNickname}
           userAvatar={userAvatar}
-          onRefresh={() => loadData(room.code)}
+          onRefresh={() => { void sync.refresh(); }}
           onChangeRoom={handleLogout}
           onOpenNotifications={() => setIsNotifOpen(true)}
           onOpenSettings={() => setIsSettingsOpen(true)}
-          loading={loading}
+          loading={sync.refreshing || sync.pending > 0}
+          connectionStatus={sync.status}
         />
       )}
 
       {/* Main Body */}
       <main className="flex-1 p-4 space-y-4">
-        {!room ? (
+        {(sync.error || (room && error)) && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{error || sync.error}</p>}
+        {sync.snapshot && sync.stale && <p role="status" className="text-xs text-slate-600">Dữ liệu có thể chưa cập nhật. Thay đổi chỉ được lưu khi có kết nối.</p>}
+        {!initialCache ? (
           /* Sleek Minimalist Auth Screen with 3D Logo */
           <div className="glass-card rounded-3xl p-6 shadow-xl space-y-5 my-auto text-center">
             <div className="flex flex-col items-center gap-2.5">
@@ -530,6 +347,23 @@ export default function App() {
               </div>
             )}
           </div>
+        ) : !sync.snapshot ? (
+          <section aria-labelledby="room-loading-title" aria-busy={sync.refreshing} className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+            <div role="status" className="space-y-1">
+              <h2 id="room-loading-title" className="font-semibold text-slate-900">
+                {sync.refreshing || (!sync.error && sync.status !== 'offline') ? 'Đang tải dữ liệu phòng' : 'Chưa tải được dữ liệu phòng'}
+              </h2>
+              <p className="text-sm text-slate-600">
+                {sync.status === 'offline' ? 'Đang ngoại tuyến. Kết nối mạng để xem thực phẩm và danh sách đi chợ.' : 'Thực phẩm và danh sách đi chợ sẽ hiện sau khi tải xong.'}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => { void sync.refresh(); }} disabled={sync.refreshing || sync.status === 'offline'} className="min-h-11 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-500">
+                {sync.refreshing ? 'Đang tải...' : 'Thử tải lại'}
+              </button>
+              <button type="button" onClick={handleLogout} className="min-h-11 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-500">Vào phòng khác</button>
+            </div>
+          </section>
         ) : (
           /* Active Tabs */
           <>
@@ -586,8 +420,8 @@ export default function App() {
                       <FoodCard
                         key={food.id}
                         food={food}
-                        onConsume={handleConsumeFood}
-                        onDelete={handleDeleteFood}
+                        onConsume={id => { void handleConsumeFood(id).catch(() => {}); }}
+                        onDelete={id => { void handleDeleteFood(id).catch(() => {}); }}
                       />
                     ))
                   )}
@@ -622,7 +456,7 @@ export default function App() {
                           <div className="text-[11px] text-slate-400 font-medium">{food.compartment}</div>
                         </div>
                         <button
-                          onClick={() => handleDeleteFood(food.id)}
+                          onClick={() => { void handleDeleteFood(food.id).catch(() => {}); }}
                           className="text-xs text-slate-400 hover:text-danger-600 font-semibold"
                         >
                           Xóa
@@ -638,7 +472,7 @@ export default function App() {
       </main>
 
       {/* Bottom Sticky Floating White Dock */}
-      {room && (
+      {sync.snapshot && (
         <BottomNav
           currentTab={currentTab}
           onSelectTab={setCurrentTab}

@@ -1,0 +1,23 @@
+
+> share-fridge@1.0.0 test:postgres
+> node --test --test-timeout=60000 tests/postgres.integration.js
+
+✔ migration runs twice and preserves existing UUID, timestamp and legacy password hash (147.443792ms)
+✔ two independent API processes share created room, exact food timestamps, shopping and subscription (133.847666ms)
+✔ unique room constraint prevents concurrent create takeover across workers (36.3855ms)
+✔ room isolation survives different process and identifier lookups (5.515875ms)
+✔ concurrent consume is atomic/idempotent and creates one shopping row (13.444625ms)
+✔ shopping insert failure rolls back food consumption in the same database transaction (7.365167ms)
+✔ failed sign-in limiter is shared and race-safe across processes (255.626792ms)
+✔ cold API process retains session room, food history, shopping, subscriptions and absolute dates (117.483333ms)
+✔ nonowner RLS sees only signed-claim room; anonymous privileges and secrets stay unavailable (4.932792ms)
+✔ real PostgreSQL handler rejects missing/default/weak production session secret before creating room (5.353875ms)
+✔ readiness fails without migration, expected column, or production DATABASE_URL; no RAM fallback (1.768084ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 803.040291

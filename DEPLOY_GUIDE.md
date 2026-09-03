@@ -61,3 +61,15 @@ Sau khi có link Vercel (`https://your-app.vercel.app`):
    - Bấm mic nói tiếng Việt để nhập món siêu tốc.
    - Chụp ảnh túi/hộp đồ để nhận diện trong tủ chung.
    - Bấm **"Nấu gì?"** để Gemini 2.5 Flash gợi ý thực đơn hôm nay từ đồ sắp hết hạn!
+
+## C-021 — Đồng bộ phòng và chế độ chưa cấu hình Realtime
+
+Chạy migration hiện tại trên PostgreSQL/Supabase trước khi bật Realtime. Migration giữ nguyên phòng, món, mã định danh và ngày hết hạn; thêm `room_sync_versions`. Trigger cập nhật revision trong cùng transaction với thêm/sửa/xóa món và danh sách mua. Publication `supabase_realtime` chuyển hai bảng của ứng dụng (`foods`, `shopping_items`) sang bảng revision; không phát bản ghi DELETE thô. Dùng publication liệt kê bảng, không dùng `FOR ALL TABLES`. Khi publication còn chứa hai bảng cũ hoặc chưa có revision, `/api/config` trả `realtime:false` và `/api/realtime-token` trả 503.
+
+Cấu hình server `SUPABASE_URL`, `SUPABASE_ANON_KEY` và `SUPABASE_JWT_SECRET` của cùng dự án; cấu hình build frontend `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` tương ứng. Bộ kiểm tra hiện hỗ trợ dự án hosted `*.supabase.co` dùng **legacy HS256 JWT secret + anon JWT**: kiểm chữ ký, project ref, role anon và hạn dùng trước khi cấp token phòng tối đa 5 phút. `sb_publishable_` và khóa ký bất đối xứng chưa được hỗ trợ bởi bộ cấp token này. Không đưa JWT secret, service-role key hoặc DATABASE_URL vào biến VITE hay mã trình duyệt.
+
+Khi thiếu cấu hình hợp lệ, ứng dụng hiển thị **Cập nhật định kỳ** và tải đầy đủ phòng, món còn lại, lịch sử, danh sách mua mỗi 4 giây. Khi kênh Realtime xác nhận đăng ký, ứng dụng tải lại dữ liệu rồi mới báo **Đã kết nối**; có thêm tải lại mỗi 60 giây để cập nhật hạn dùng. Sau lỗi/đóng kênh, SDK được tạo lại với retry có giới hạn; token được gia hạn trước khi hết hạn. Mở lại tab và có mạng trở lại đều tải snapshot mới, kể cả snapshot rỗng.
+
+Cache chỉ phục vụ đọc dữ liệu cũ, không được POST lên API. Lỗi tải giữ snapshot cũ và cảnh báo; chưa có snapshot thì hiển thị chờ/thử lại. Ghi dữ liệu yêu cầu mạng và thành công từ máy chủ. Đăng xuất hoặc phiên 401 xóa cache của phòng hiện tại; phản hồi muộn không được khôi phục phiên. 403 không đăng xuất một phiên còn hợp lệ.
+
+Kiểm tra local bằng `npm test`, `TEST_DATABASE_URL=... npm run test:sync-postgres`, `npm run build`. Các kiểm tra này không thay cho nghiệm thu hai trình duyệt trên Supabase đã triển khai. Cần đo riêng độ trễ thêm/sửa/xóa/đã nấu và reconnect trên URL thật; polling không chứng minh mục tiêu dưới 500 ms.

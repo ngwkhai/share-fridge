@@ -89,7 +89,7 @@ endpoint('get','/api/shopping-items','ShoppingList',{parameters:[query('room_cod
 endpoint('post','/api/shopping-items','ShoppingItem',{input:'CreateShoppingItemDto',status:201});
 endpoint('patch','/api/shopping-items/{id}/toggle','ShoppingItem',{input:'ToggleShoppingDto'});
 endpoint('delete','/api/shopping-items/{id}','Deleted');
-endpoint('get','/api/realtime-token','RealtimeToken',{unavailable:'C021: returns 503 until room-scoped realtime is implemented.'});
+endpoint('get','/api/realtime-token','RealtimeToken',{unavailable:'Requires migrated Supabase PostgreSQL and matching legacy HS256 project secret/anon JWT. Returns 503 otherwise; tokens expire within five minutes.',summary:'Issue a short-lived room-scoped authenticated Realtime JWT'});
 endpoint('get','/api/notifications/config','NotificationConfig',{unavailable:'C024: returns 503 until Web Push is implemented.'});
 endpoint('post','/api/notifications/subscribe','SubscriptionResult',{input:'SubscriptionRequest'});
 endpoint('delete','/api/notifications/subscribe','Success',{input:object({endpoint:str()}),unavailable:'C024: returns 503 until unsubscribe is implemented.'});

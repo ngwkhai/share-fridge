@@ -1,3 +1,4 @@
+import type { ConnectionStatus } from '../services/roomSync';
 import React from 'react';
 import { Users, Bell, RefreshCw, Settings } from 'lucide-react';
 
@@ -11,6 +12,7 @@ interface HeaderProps {
   onOpenNotifications: () => void;
   onOpenSettings: () => void;
   loading: boolean;
+  connectionStatus: ConnectionStatus;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -22,7 +24,8 @@ export const Header: React.FC<HeaderProps> = ({
   onChangeRoom,
   onOpenNotifications,
   onOpenSettings,
-  loading
+  loading,
+  connectionStatus
 }) => {
   return (
     <header className="glass-header px-4 py-3 sticky top-0 z-30 shadow-xs">
@@ -43,7 +46,7 @@ export const Header: React.FC<HeaderProps> = ({
                 className="w-10 h-10 rounded-2xl object-cover ring-2 ring-fresh-400/40 shadow-md"
               />
             )}
-            <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-fresh-500 border-2 border-white rounded-full"></span>
+            <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 border-2 border-white rounded-full ${connectionStatus === 'connected' ? 'bg-emerald-500' : connectionStatus === 'offline' ? 'bg-slate-400' : 'bg-amber-500'}`}></span>
           </div>
 
           <div>
@@ -51,8 +54,8 @@ export const Header: React.FC<HeaderProps> = ({
               <h1 className="font-extrabold text-slate-900 text-sm leading-tight tracking-tight">
                 {nickname}
               </h1>
-              <span className="text-[10px] bg-fresh-50 text-fresh-700 font-bold px-1.5 py-0.2 rounded-full border border-fresh-200">
-                Online
+              <span role="status" className="text-[10px] bg-fresh-50 text-fresh-700 font-bold px-1.5 py-0.2 rounded-full border border-fresh-200">
+                {{ connecting: 'Đang kết nối', offline: 'Ngoại tuyến', reconnecting: 'Đang thử lại', polling: 'Cập nhật định kỳ', connected: 'Đã kết nối' }[connectionStatus]}
               </span>
             </div>
 

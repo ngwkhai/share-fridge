@@ -1,3 +1,4 @@
+import type { RoomSnapshot } from './roomSync';
 import type { FoodItem, CreateFoodDto, UpdateFoodDto, ParsedFoodItem, RecipeSuggestion, ShoppingItem, CreateShoppingItemDto, Room, RoomDetail, AuthSession, SessionPayload, CompartmentType } from '../types';
 
 export interface SessionCache {
@@ -7,11 +8,16 @@ export interface SessionCache {
   nickname: string;
   token: string;
   cached_at: number;
+  room?: Room;
   google_email?: string;
   user_avatar?: string;
 }
 
 const SESSION_CACHE_KEY = 'sharefridge_session_cache';
+let sessionGeneration = 0;
+const sessionListeners = new Set<() => void>();
+const notifySession = () => { sessionGeneration++; sessionListeners.forEach(listener => listener()); };
+
 
 export const sessionCache = {
   save(cache: SessionCache) {
@@ -20,26 +26,56 @@ export const sessionCache = {
       localStorage.setItem('sharefridge_room_code', cache.code);
       localStorage.setItem('sharefridge_session_token', cache.token);
     } catch {}
+    notifySession();
+  },
+  subscribe(listener: () => void) {
+    sessionListeners.add(listener);
+    const changed = (event: StorageEvent) => { if (event.key === SESSION_CACHE_KEY || event.key === null) notifySession(); };
+    if (typeof window !== 'undefined') window.addEventListener('storage', changed);
+    return () => { sessionListeners.delete(listener); if (typeof window !== 'undefined') window.removeEventListener('storage', changed); };
   },
   get(): SessionCache | null {
     try {
       const raw = localStorage.getItem(SESSION_CACHE_KEY);
       if (!raw) return null;
-      return JSON.parse(raw);
+      const value = JSON.parse(raw);
+      return object(value) && roomCode(value.code) && nonempty(value.name) && nonempty(value.nickname) && nonempty(value.token) && typeof value.cached_at === 'number' ? value as unknown as SessionCache : null;
     } catch {
       return null;
     }
   },
   clear() {
+    const previous = this.get();
+    if (previous) foodCache.clear(previous.code);
     try {
       localStorage.removeItem(SESSION_CACHE_KEY);
       localStorage.removeItem('sharefridge_room_code');
       localStorage.removeItem('sharefridge_session_token');
     } catch {}
+    notifySession();
   }
 };
 
 export const foodCache = {
+  clear(code: string) {
+    try { for (const key of ['snapshot','foods','consumed','shopping']) localStorage.removeItem(`sharefridge_${key}_${code}`); } catch {}
+  },
+  saveSnapshot(code: string, snapshot: RoomSnapshot) {
+    try { localStorage.setItem(`sharefridge_snapshot_${code}`, JSON.stringify(snapshot)); } catch {}
+    // Remove obsolete split caches so no older client can resurrect their contents.
+    try { for (const key of ['foods','consumed','shopping']) localStorage.removeItem(`sharefridge_${key}_${code}`); } catch {}
+  },
+  getSnapshot(code: string): RoomSnapshot | null {
+    try {
+      const x = JSON.parse(localStorage.getItem(`sharefridge_snapshot_${code}`) || 'null');
+      if (!object(x) || !roomDetail(x.room) || x.room.code !== code || typeof x.savedAt !== 'number' || !Array.isArray(x.foods) || !x.foods.every(food) || !Array.isArray(x.consumed) || !x.consumed.every(food) || !Array.isArray(x.shopping) || !x.shopping.every(shopping) || [...x.foods,...x.consumed,...x.shopping].some(item => item.room_code !== code)) return null;
+      const age = (item: FoodItem): FoodItem => {
+        const days = Math.ceil((Date.parse(item.expiry_date) - Date.now()) / 86400000);
+        return { ...item, days_remaining: days, status: item.status === 'CONSUMED' ? 'CONSUMED' : days <= 0 ? 'EXPIRED' : days <= 2 ? 'COOK_SOON' : 'FRESH' };
+      };
+      return { room: x.room, foods: x.foods.map(age), consumed: x.consumed.map(age), shopping: x.shopping, savedAt: x.savedAt };
+    } catch { return null; }
+  },
   saveFoods(roomCode: string, foods: FoodItem[]) {
     try {
       localStorage.setItem(`sharefridge_foods_${roomCode}`, JSON.stringify(foods));
@@ -113,15 +149,17 @@ const source = (x: unknown) => x === 'gemini-2.5-flash' || x === 'heuristic';
 const deleted = (id: string): Guard<{ success: true; deleted_id: string }> => (x): x is { success: true; deleted_id: string } => object(x) && x.success === true && x.deleted_id === id;
 
 const getToken = () => {
-  try { return localStorage.getItem('sharefridge_session_token') || ''; }
+  try { return sessionCache.get()?.token || (localStorage.getItem(SESSION_CACHE_KEY) ? '' : localStorage.getItem('sharefridge_session_token') || ''); }
   catch { return ''; }
 };
 
 async function request<T>(path: string, validate: Guard<T>, options: { method?: string; body?: unknown; public?: boolean } = {}): Promise<T> {
+  if (options.method && options.method !== 'GET' && typeof navigator !== 'undefined' && navigator.onLine === false) throw new ApiError('Đang ngoại tuyến. Kết nối mạng để lưu thay đổi.', 0, 'OFFLINE', path);
   let response: Response;
   try {
     response = await fetch(path, {
       method: options.method || 'GET',
+      cache: 'no-store',
       headers: { ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(options.public ? {} : { Authorization: `Bearer ${getToken()}` }) },
       body: options.body === undefined ? undefined : JSON.stringify(options.body)
     });
@@ -144,17 +182,24 @@ async function request<T>(path: string, validate: Guard<T>, options: { method?: 
 export const api = {
   sessionCache,
   foodCache,
+  async getRealtimeToken() {
+    return request('/api/realtime-token', (x): x is { token: string; expires_at: string } => object(x) && nonempty(x.token) && date(x.expires_at));
+  },
   async getHealth() {
     return request('/healthz', (x): x is { status: 'ok'; version: string; timestamp: string } => object(x) && x.status === 'ok' && nonempty(x.version) && date(x.timestamp), { public: true });
   },
   async createRoomWithPasscode(code?: string, name?: string, passcode?: string, nickname?: string): Promise<AuthSession> {
+    const generation = sessionGeneration;
     const data = await request('/api/auth/create-room', authSession, { method: 'POST', public: true, body: { code, name, passcode, nickname } });
-    sessionCache.save({ code: data.room.code, name: data.room.name, passcode: passcode || '', nickname: data.nickname, token: data.token, cached_at: Date.now() });
+    if (generation !== sessionGeneration) throw new ApiError('Phiên đã thay đổi. Vui lòng thử lại.', 0, 'SESSION_CHANGED', '/api/auth');
+    sessionCache.save({ room: data.room, code: data.room.code, name: data.room.name, passcode: passcode || '', nickname: data.nickname, token: data.token, cached_at: Date.now() });
     return data;
   },
   async joinRoomWithPasscode(code: string, passcode: string, nickname?: string): Promise<AuthSession> {
+    const generation = sessionGeneration;
     const data = await request('/api/auth/join-room', authSession, { method: 'POST', public: true, body: { code, passcode, nickname } });
-    sessionCache.save({ code: data.room.code, name: data.room.name, passcode, nickname: data.nickname, token: data.token, cached_at: Date.now() });
+    if (generation !== sessionGeneration) throw new ApiError('Phiên đã thay đổi. Vui lòng thử lại.', 0, 'SESSION_CHANGED', '/api/auth');
+    sessionCache.save({ room: data.room, code: data.room.code, name: data.room.name, passcode, nickname: data.nickname, token: data.token, cached_at: Date.now() });
     return data;
   },
   async verifyToken(token?: string) {

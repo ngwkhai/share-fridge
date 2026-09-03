@@ -1,0 +1,22 @@
+
+> share-fridge@1.0.0 build
+> tsc && vite build
+
+vite v6.4.3 building for production...
+transforming...
+✓ 1890 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/registerSW.js                0.13 kB
+dist/manifest.webmanifest         0.44 kB
+dist/index.html                   0.98 kB │ gzip:   0.55 kB
+dist/assets/index-DXxoGU9V.css   32.12 kB │ gzip:   6.09 kB
+dist/assets/index-Bx5mXcmB.js   447.09 kB │ gzip: 126.16 kB
+✓ built in 1.31s
+
+PWA v1.3.0
+mode      generateSW
+precache  8 entries (470.05 KiB)
+files generated
+  dist/sw.js
+  dist/workbox-9c191d2f.js

@@ -184,6 +184,13 @@ export function createPostgresRepository({ connectionString = process.env.DATABA
   const query = (text, values) => pool.query(text, values);
   return {
     kind: 'postgres', pool,
+    async realtimeReady() {
+      try {
+        const result = await query(`select exists(select 1 from sharefridge_private.schema_migrations where version='002_room_sync') and exists(select 1 from pg_publication where pubname='supabase_realtime' and not puballtables) and exists(select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='room_sync_versions') and not exists(select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename in ('foods','shopping_items')) as ready`);
+        await query('select room_code,revision,changed_at from public.room_sync_versions limit 0');
+        return result.rows[0]?.ready === true;
+      } catch { return false; }
+    },
     async ready() {
       try {
         const result = await query(`select exists(select 1 from sharefridge_private.schema_migrations where version=$1) as migrated,
