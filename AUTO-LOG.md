@@ -14,3 +14,5 @@
 - Supabase in-app dashboard currently presents sign-in. No cloud database/storage/realtime configuration was obtained.
 - C-018 planner spot-check against real localhost handler: create 201; missing token 401; cross-room deletion 404; duplicate create 409 through both create endpoints; no password fields returned. Full tests/spec review still pending.
 - Preview configuration: generated a new 48-byte random SESSION_SECRET and added it as a Vercel Secret to Preview only. Value never printed or written to repository; production configuration unchanged. Existing production alias confirmed as https://sharefridge.vercel.app.
+
+- C-018 DONE: planner reviewed ab20be2, independently verified 32 tests/build, then 13/13 deployed HTTP checks on Preview dpl_cHfYrKqtmkuACpKHGyj2KESKRL6B at 2026-09-03T01:09:57Z. Missing-token 401, cross-room 403/404, both overwrite routes409, old PIN preserved, safe DTO, live OpenAPI200. Evidence under evidence/C-018. No production promotion.

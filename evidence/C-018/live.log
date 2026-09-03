@@ -1,0 +1,14 @@
+{"name":"create disposable room A","status":201,"expected":201,"passed":true}
+{"name":"create disposable room B","status":201,"expected":201,"passed":true}
+{"name":"authenticated create","status":201,"expected":201,"passed":true}
+{"name":"unauthorized read","status":401,"expected":401,"passed":true}
+{"name":"unauthorized write","status":401,"expected":401,"passed":true}
+{"name":"cross-room read","status":403,"expected":403,"passed":true}
+{"name":"cross-room delete","status":404,"expected":404,"passed":true}
+{"name":"duplicate /api/auth/create-room","status":409,"expected":409,"passed":true}
+{"name":"duplicate /api/rooms","status":409,"expected":409,"passed":true}
+{"name":"original credentials preserved","status":200,"expected":200,"passed":true}
+{"name":"public room DTO","status":200,"expected":200,"passed":true}
+{"name":"live OpenAPI","status":200,"expected":200,"passed":true}
+{"name":"cleanup own disposable food","status":200,"expected":200,"passed":true}
+{"deployment":"https://sharefridge-d4fjygcpu-khaindhrt-9606s-projects.vercel.app","spec_url":"https://sharefridge-d4fjygcpu-khaindhrt-9606s-projects.vercel.app/api/openapi.json","tested_at":"2026-09-03T01:09:57.195Z","checks":13,"passed":true,"tokens_logged":false}

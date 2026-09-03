@@ -1,6 +1,6 @@
-# C-018 — PARTIAL local verification (2026-09-03)
+# C-018 — local and deployed verification (2026-09-03)
 
-Status remains `todo`; deployment and live OpenAPI evidence must be supplied by the planner before completion.
+Planner reviewed commit ab20be2 and independently ran 32 tests (0 failures/skips), build, and the deployed security probe. Card complete on the linked Preview; production release remains C-028.
 
 ## Actual commands and results
 
@@ -25,4 +25,4 @@ Status remains `todo`; deployment and live OpenAPI evidence must be supplied by 
 
 This card does not claim database persistence, shared rate limiting across workers, Google, live push, browser integration, provider success or a production release. The current data adapter is still in-memory and has existing demo seed rooms; production adapter and seed isolation belong to C-019. Session secret should be generated independently with at least 32 random bytes and shared by deployment instances. Existing legacy PBKDF2 hashes remain accepted; newly created rooms use scrypt, without resetting stored room records.
 
-Live verification remains required on the linked deployment: two disposable rooms, unauthorized reads/writes/overwrites rejected, sanitized HTTP results and the live `/api/openapi.json` URL. Local tests do not close that gate.
+Live verification completed at 2026-09-03T01:09:57Z: [sanitized log](live.log), [reproducible probe](live-probe.mjs), 13/13 checks passed. Deployment https://sharefridge-d4fjygcpu-khaindhrt-9606s-projects.vercel.app; spec at /api/openapi.json (200, RoomBearer scheme). Vercel CLI uses the existing authorized account for Preview protection. Tokens and passcode hashes were not logged. Two disposable rooms were created; the test food was deleted. The first probe attempt had a typo in the expected security-scheme name (BearerAuth instead of the actual RoomBearer); the corrected complete rerun passed.
