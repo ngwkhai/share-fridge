@@ -7,3 +7,23 @@ Order: C-018 auth; C-019 PostgreSQL; C-020 client contract; C-021 cache/realtime
 Architecture amendment: use a durable server-side PostgreSQL repository with Supabase-compatible room isolation, existing HMAC room sessions, supplemental verified Google identity, authenticated realtime and explicit polling degradation. Preserve data; no silent recreation/reseeding. Tests accompany every implementation card. Integration/release depend on all remediation cards.
 
 Shared files force serial build sessions. Planner delegates one agent per card, reviews, reruns verification and records PARTIAL/blocked evidence honestly. Live access and providers remain required for done, even after local tests pass.
+
+## Execution checkpoint — 2026-09-03
+
+Reviewed local work is retained on `codex/remediation-integration`; `main` and production are not promoted while release gates remain open. Original C001–C017 statuses are historical, not evidence of remediation completion.
+
+| Card | Current outcome | Remaining acceptance |
+|---|---|---|
+| C018 | Done; security behavior verified on existing Preview | Included in final integrated release regression |
+| C019 | PARTIAL; durable PostgreSQL repository and real local DB tests | Hosted DB, migration, multi-instance/redeploy persistence |
+| C020 | PARTIAL; actual client/API contracts and local browser CRUD verified | Deployed CRUD and runtime spec |
+| C021 | PARTIAL; authoritative snapshots, revision/RLS and two local tabs verified | Hosted Realtime, two devices, reconnect and measured latency |
+| C022 | PARTIAL; real GIS implementation, RSA verification and local failure states verified | Authorized origin and two real Google accounts |
+| C023 | PARTIAL; 72 application tests, 24 PostgreSQL tests, local voice-draft/cook/history verified; commit81257ed | Real Gemini source and deployed exact-ID cooking/DB evidence |
+| C024 | In progress; dedicated builder implementing real Web Push | Review/local tests, configured sender, production scheduler and locked-device receipt |
+| C025 | Prepared; bounded photo/storage/PWA contract recorded | Implementation, review, hosted private storage and two-device image/install evidence |
+| C026 | Prepared; accessible interactions and real nickname-session update contracted | Implementation, mobile/keyboard review and deployed interaction evidence |
+| C027 | Dependency gate blocked | C018–C026 accepted before integration acceptance card starts |
+| C028 | Dependency gate blocked | C027 accepted before final verified release |
+
+Pending infrastructure: existing Supabase/PostgreSQL project access, private Storage/Realtime configuration, Google web client/origins, Web Push sender/scheduler configuration, and physical-device acceptance. The existing Vercel Gemini key has not yet produced proven provider success; configured is not verified. Do not export existing secrets into local files or evidence. Continue independent implementation while these gates remain open.
