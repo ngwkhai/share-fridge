@@ -1,0 +1,481 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "ShareFridge API",
+    "version": "1.0.0",
+    "description": "API contract for ShareFridge - Shared Room Food Inventory Management"
+  },
+  "paths": {
+    "/healthz": {
+      "get": {
+        "summary": "Health check endpoint",
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "example": "ok" },
+                    "version": { "type": "string", "example": "1.0.0" },
+                    "timestamp": { "type": "string" }
+                  },
+                  "required": ["status", "version", "timestamp"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rooms": {
+      "post": {
+        "summary": "Create a new room",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": { "type": "string", "example": "839201" },
+                  "name": { "type": "string", "example": "Phòng 302" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Room created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Room" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rooms/{code}": {
+      "get": {
+        "summary": "Get room details by 6-digit PIN",
+        "parameters": [
+          { "name": "code", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Room details",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RoomDetail" }
+              }
+            }
+          },
+          "404": { "description": "Room not found" }
+        }
+      }
+    },
+    "/api/foods": {
+      "get": {
+        "summary": "Get food items in room fridge",
+        "parameters": [
+          { "name": "room_code", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["active", "consumed"] } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/FoodItem" } },
+                    "total": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Add a new food item",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateFoodDto" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/FoodItem" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/foods/{id}/consume": {
+      "patch": {
+        "summary": "Mark food item as consumed",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "consumed_by": { "type": "string" },
+                  "add_to_shopping_list": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/FoodItem" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/foods/{id}": {
+      "delete": {
+        "summary": "Delete food item",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "deleted_id": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ai/parse-voice": {
+      "post": {
+        "summary": "Parse speech transcript into structured food JSON",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "transcript": { "type": "string" }
+                },
+                "required": ["transcript"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "parsed": { "$ref": "#/components/schemas/ParsedFoodItem" },
+                    "confidence": { "type": "number" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ai/suggest-recipes": {
+      "post": {
+        "summary": "Generate smart recipes based on current items",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "room_code": { "type": "string" },
+                  "preference": { "type": "string" }
+                },
+                "required": ["room_code"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "suggestions": { "type": "array", "items": { "$ref": "#/components/schemas/RecipeSuggestion" } },
+                    "generated_at": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/shopping-items": {
+      "get": {
+        "summary": "List shopping items for room",
+        "parameters": [
+          { "name": "room_code", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/ShoppingItem" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Add item to shopping list",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateShoppingItemDto" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ShoppingItem" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/shopping-items/{id}/toggle": {
+      "patch": {
+        "summary": "Toggle bought status of shopping item",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "is_bought": { "type": "boolean" },
+                  "move_to_fridge": { "type": "boolean" },
+                  "compartment": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ShoppingItem" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/shopping-items/{id}": {
+      "delete": {
+        "summary": "Delete shopping item",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/notifications/subscribe": {
+      "post": {
+        "summary": "Register push notification subscription",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "room_code": { "type": "string" },
+                  "subscription": { "type": "object" },
+                  "device_name": { "type": "string" }
+                },
+                "required": ["room_code", "subscription"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "subscriber_id": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Room": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "code": { "type": "string" },
+          "name": { "type": "string" },
+          "created_at": { "type": "string" }
+        },
+        "required": ["id", "code", "name", "created_at"]
+      },
+      "RoomDetail": {
+        "allOf": [
+          { "$ref": "#/components/schemas/Room" },
+          {
+            "type": "object",
+            "properties": {
+              "active_food_count": { "type": "integer" },
+              "urgent_food_count": { "type": "integer" }
+            }
+          }
+        ]
+      },
+      "FoodItem": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "room_code": { "type": "string" },
+          "name": { "type": "string" },
+          "quantity": { "type": "string" },
+          "compartment": { "type": "string", "enum": ["FREEZER", "FRIDGE_TOP", "FRIDGE_BOTTOM", "CRISPER", "DOOR"] },
+          "container_tag": { "type": "string" },
+          "added_date": { "type": "string" },
+          "expiry_date": { "type": "string" },
+          "days_remaining": { "type": "number" },
+          "status": { "type": "string", "enum": ["FRESH", "COOK_SOON", "EXPIRED", "CONSUMED"] },
+          "photo_url": { "type": "string", "nullable": true },
+          "notes": { "type": "string", "nullable": true },
+          "created_by": { "type": "string" }
+        },
+        "required": ["id", "room_code", "name", "compartment", "added_date", "expiry_date", "days_remaining", "status"]
+      },
+      "CreateFoodDto": {
+        "type": "object",
+        "properties": {
+          "room_code": { "type": "string" },
+          "name": { "type": "string" },
+          "quantity": { "type": "string" },
+          "compartment": { "type": "string", "enum": ["FREEZER", "FRIDGE_TOP", "FRIDGE_BOTTOM", "CRISPER", "DOOR"] },
+          "container_tag": { "type": "string" },
+          "shelf_life_days": { "type": "number" },
+          "photo_url": { "type": "string", "nullable": true },
+          "notes": { "type": "string", "nullable": true },
+          "created_by": { "type": "string" }
+        },
+        "required": ["room_code", "name", "compartment", "shelf_life_days"]
+      },
+      "ParsedFoodItem": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "quantity": { "type": "string" },
+          "compartment": { "type": "string" },
+          "container_tag": { "type": "string" },
+          "shelf_life_days": { "type": "number" }
+        },
+        "required": ["name", "compartment", "shelf_life_days"]
+      },
+      "RecipeSuggestion": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "cook_time_minutes": { "type": "integer" },
+          "ingredients_used": { "type": "array", "items": { "type": "string" } },
+          "ingredients_missing": { "type": "array", "items": { "type": "string" } },
+          "instructions": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["id", "title", "cook_time_minutes", "ingredients_used", "instructions"]
+      },
+      "ShoppingItem": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "room_code": { "type": "string" },
+          "name": { "type": "string" },
+          "quantity": { "type": "string" },
+          "is_bought": { "type": "boolean" },
+          "created_at": { "type": "string" }
+        },
+        "required": ["id", "room_code", "name", "is_bought", "created_at"]
+      },
+      "CreateShoppingItemDto": {
+        "type": "object",
+        "properties": {
+          "room_code": { "type": "string" },
+          "name": { "type": "string" },
+          "quantity": { "type": "string" }
+        },
+        "required": ["room_code", "name"]
+      }
+    }
+  }
+}

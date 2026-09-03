@@ -1,0 +1,114 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif;
+    background: radial-gradient(circle at 50% 0%, #ecfdf5 0%, #f8fafc 60%, #f1f5f9 100%);
+    min-height: 100vh;
+    color: #0f172a;
+    letter-spacing: -0.015em;
+  }
+}
+
+/* Glassmorphism & Modern Senior UI Tokens */
+.glass-card {
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.glass-header {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+}
+
+.glass-dock-white {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 20px 45px -10px rgba(0, 0, 0, 0.12), 0 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+
+.glass-input {
+  background: rgba(248, 250, 252, 0.8);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+/* Ambient Neon Glows */
+.glow-emerald {
+  box-shadow: 0 0 25px -4px rgba(16, 185, 129, 0.45);
+}
+
+.glow-urgent {
+  box-shadow: 0 0 25px -4px rgba(245, 158, 11, 0.5);
+  animation: pulse-glow-amber 2s infinite ease-in-out;
+}
+
+.glow-danger {
+  box-shadow: 0 0 25px -4px rgba(239, 68, 68, 0.5);
+  animation: pulse-glow-rose 2s infinite ease-in-out;
+}
+
+.glow-freezer {
+  box-shadow: 0 0 25px -4px rgba(14, 165, 233, 0.4);
+}
+
+/* Keyframe Animations */
+@keyframes pulse-glow-amber {
+  0%, 100% {
+    box-shadow: 0 0 20px -2px rgba(245, 158, 11, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 32px 4px rgba(245, 158, 11, 0.65);
+  }
+}
+
+@keyframes pulse-glow-rose {
+  0%, 100% {
+    box-shadow: 0 0 20px -2px rgba(239, 68, 68, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 32px 4px rgba(239, 68, 68, 0.65);
+  }
+}
+
+@keyframes siri-ring-1 {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.18); opacity: 0.3; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+@keyframes siri-ring-2 {
+  0% { transform: scale(1.1); opacity: 0.4; }
+  50% { transform: scale(0.9); opacity: 0.7; }
+  100% { transform: scale(1.1); opacity: 0.4; }
+}
+
+.animate-siri-1 {
+  animation: siri-ring-1 2.4s infinite ease-in-out;
+}
+
+.animate-siri-2 {
+  animation: siri-ring-2 3s infinite ease-in-out;
+}
+
+/* Hide scrollbar */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

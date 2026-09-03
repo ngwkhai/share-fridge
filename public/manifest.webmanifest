@@ -1,0 +1,28 @@
+{
+  "name": "ShareFridge — Tủ Lạnh Phòng Trọ",
+  "short_name": "ShareFridge",
+  "description": "Quản lý kho thực phẩm dùng chung cho phòng trọ với AI gợi ý món ăn và cảnh báo hạn dùng.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090d16",
+  "theme_color": "#10b981",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/logo.jpg",
+      "sizes": "1024x1024",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ]
+}

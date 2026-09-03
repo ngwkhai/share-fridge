@@ -1,0 +1,143 @@
+{
+  "timestamp": "2026-09-03T00:35:52.966Z",
+  "node": "v24.12.0",
+  "scope": "Local disposable HTTP server; actual transpiled API client; extracted App.loadData callback; no production requests",
+  "defectProbesConfirmed": 13,
+  "results": [
+    {
+      "id": "P01_AUTH_NOT_ENFORCED",
+      "observed": {
+        "unauthenticatedRead": 200,
+        "crossRoomDelete": 200
+      }
+    },
+    {
+      "id": "P02_PUBLIC_PASSWORD_MATERIAL",
+      "observed": {
+        "status": 200,
+        "fields": [
+          "passcode_hash",
+          "salt"
+        ]
+      }
+    },
+    {
+      "id": "P03_ROOM_OVERWRITE",
+      "observed": {
+        "overwrite": 201,
+        "changedPasswordJoin": 200,
+        "legacyPasswordRemovalJoin": 200
+      }
+    },
+    {
+      "id": "P04_REAL_CLIENT_CONSUME",
+      "observed": {
+        "method": "POST",
+        "path": "/api/foods/food-1788395752878-r5nb/consume",
+        "status": 404,
+        "returnedAsFood": {
+          "error": "Endpoint not found"
+        },
+        "storedStatus": "COOK_SOON"
+      }
+    },
+    {
+      "id": "P05_REAL_CLIENT_TOGGLE",
+      "observed": {
+        "method": "PATCH",
+        "path": "/api/shopping-items/shop-1788395752879",
+        "status": 404,
+        "returnedAsShoppingItem": {
+          "error": "Endpoint not found"
+        }
+      }
+    },
+    {
+      "id": "P06_REAL_CLIENT_PUSH",
+      "observed": {
+        "method": "POST",
+        "path": "/api/push/subscribe",
+        "status": 404,
+        "returnedWithoutThrowing": {
+          "error": "Endpoint not found"
+        },
+        "storedSubscriptions": 0
+      }
+    },
+    {
+      "id": "P07_FRESH_WORKER_STATE",
+      "observed": {
+        "originalRoomExists": true,
+        "freshWorkerRoomExists": false,
+        "freshWorkerFoodExists": false
+      }
+    },
+    {
+      "id": "P08_REAL_APP_CACHE_RESURRECTS_DELETED_FOOD",
+      "observed": {
+        "beforeReload": 0,
+        "afterReload": 1,
+        "idChanged": true,
+        "cachedStatus": "EXPIRED",
+        "restoredStatus": "FRESH",
+        "restoredDays": 3
+      }
+    },
+    {
+      "id": "P09_INPUT_VALIDATION",
+      "observed": {
+        "status": 201,
+        "missingNameAccepted": true,
+        "invalidCompartmentAccepted": "INVALID",
+        "requestedZeroDaysActual": 3
+      }
+    },
+    {
+      "id": "P10_VOICE_CARD_EXAMPLE",
+      "observed": {
+        "source": "heuristic",
+        "name": "Thịt ba chỉ nửa cân",
+        "quantity": ""
+      }
+    },
+    {
+      "id": "P11_RECIPE_INGREDIENTS",
+      "observed": {
+        "expiredIngredientIncluded": [
+          "Thịt quá hạn"
+        ],
+        "unrelatedRecipe": "Trứng chiên hành tây hoặc xào cà chua",
+        "unrelatedIngredientsMarkedUsed": [
+          "Sữa chua"
+        ]
+      }
+    },
+    {
+      "id": "P12_CONTRACT_DRIFT",
+      "observed": {
+        "missingAuthPaths": [
+          "/api/auth/create-room",
+          "/api/auth/join-room",
+          "/api/auth/verify-token"
+        ],
+        "shoppingDeleteResponse": {
+          "success": true
+        }
+      }
+    },
+    {
+      "id": "P13_BUILT_ASSETS",
+      "observed": {
+        "classesUsedButNotGenerated": [
+          ".w-13{",
+          ".h-13{",
+          ".w-22{",
+          ".h-22{",
+          ".text-fresh-800{"
+        ],
+        "pushFilePrecached": true,
+        "generatedWorkerRegistersPushHandler": false
+      }
+    }
+  ]
+}
