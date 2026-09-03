@@ -122,3 +122,77 @@ test('App keeps the last complete snapshot visible when refreshing fails', async
     assert.equal(controller.getState().snapshot, snapshot);
   } finally { await act(async () => { renderer.unmount(); }); }
 });
+
+test('App displays verified profile in header/settings and clears it on external session logout', async () => {
+  const { api } = await import(compile(fileURLToPath(new URL('../src/services/api.ts', import.meta.url))));
+  const oldFetch = globalThis.fetch, oldStorage = globalThis.localStorage, oldWindow = globalThis.window;
+  const cache = new Map(); let signedOut = 0;
+  globalThis.localStorage = { getItem: key => cache.get(key) || null, setItem: (key,value) => cache.set(key,value), removeItem: key => cache.delete(key) };
+  globalThis.fetch = async () => new Response(JSON.stringify({ google_client_id:null,capabilities:{google:false,push:false,photos:false,realtime:false} }),{status:200});
+  globalThis.window = { google:{accounts:{id:{cancel(){},disableAutoSelect(){signedOut++;}}}} };
+  const controller = createRoomSyncController({read:async()=>empty(),cached:()=>null,save:()=>{},invalidate:()=>{},online:()=>true});
+  controller.activate(null); setController(controller);
+  let renderer;
+  const profile={sub:'fixture-sub-one',name:'Verified One',email:'verified-one@example.com',picture:'https://example.com/profile-one.png'};
+  try {
+    await act(async()=>{renderer=create(React.createElement(App));});
+    assert.match(renderedText(renderer),/Google hiện chưa khả dụng/);
+    const googleButton=renderer.root.find(node=>node.type?.name==='GoogleAuthButton');
+    // The component callback boundary receives an already server-verified identity.
+    await act(async()=>{googleButton.props.onSuccess({profile,identity_token:'fixture-verified-identity',expires_at:new Date(Date.now()+60000).toISOString()});});
+    assert.match(renderedText(renderer),/verified-one@example.com/);
+    await act(async()=>{controller.activate({...session,nickname:profile.name,google_profile:profile});await controller.refresh();});
+    const header=renderer.root.findByType('header');
+    assert.ok(header.findAllByType('img').some(image=>image.props.src===profile.picture));
+    await act(async()=>{renderer.root.findAllByType('button').find(node=>node.props.title==='Cài đặt phòng & tài khoản').props.onClick();});
+    assert.match(renderedText(renderer),/verified-one@example.com/);
+    assert.ok(renderer.root.findAllByType('img').filter(image=>image.props.src===profile.picture).length>=2);
+    // Cross-tab logout / expired session changes the production controller state,
+    // without calling App's explicit logout handler.
+    await act(async()=>{controller.activate(null);});
+    assert.doesNotMatch(renderedText(renderer),/verified-one@example.com|Verified One/);
+    assert.ok(!renderer.root.findAllByType('img').some(image=>image.props.src===profile.picture));
+    assert.ok(signedOut>0);
+    assert.equal(api.sessionCache.get(),null);
+  } finally {
+    if(renderer) await act(async()=>renderer.unmount());
+    globalThis.fetch=oldFetch;
+    if(oldStorage===undefined)delete globalThis.localStorage;else globalThis.localStorage=oldStorage;
+    if(oldWindow===undefined)delete globalThis.window;else globalThis.window=oldWindow;
+  }
+});
+
+test('actual Google button ignores cancelled credentials and exposes verification errors without profiles', async () => {
+  const { GoogleAuthButton } = await import(compile(fileURLToPath(new URL('../src/components/GoogleAuthButton.tsx', import.meta.url))));
+  const oldFetch=globalThis.fetch,oldWindow=globalThis.window;
+  const buttons=[];let receive, calls=0;const successes=[];
+  globalThis.window={google:{accounts:{id:{initialize:options=>{receive=options.callback;},renderButton:(_element,options)=>buttons.push(options),cancel(){},disableAutoSelect(){}}}}};
+  let pending;
+  globalThis.fetch=async path=>{
+    if(path==='/api/config')return new Response(JSON.stringify({google_client_id:'ui-test.apps.googleusercontent.com',capabilities:{google:true,push:false,photos:false,realtime:false}}),{status:200});
+    calls++;return pending.promise;
+  };
+  let renderer;
+  try {
+    await act(async()=>{renderer=create(React.createElement(GoogleAuthButton,{onSuccess:identity=>successes.push(identity)}),{createNodeMock:()=>({clientWidth:280,replaceChildren(){}})});});
+    assert.equal(buttons.length,1);
+    const first=buttons[0];
+    await act(async()=>first.click_listener());
+    assert.match(renderedText(renderer),/Nếu đã đóng cửa sổ/);
+    await act(async()=>button(renderer,'Hủy đăng nhập Google').props.onClick());
+    assert.equal(buttons.length,2);
+    await act(async()=>receive({state:first.state,credential:'cancelled'}));
+    assert.equal(calls,0);assert.equal(successes.length,0);
+    pending=deferred();
+    await act(async()=>receive({state:buttons[1].state,credential:'verify-after-click'}));
+    assert.match(renderedText(renderer),/Đang xác minh/);
+    await act(async()=>button(renderer,'Hủy đăng nhập Google').props.onClick());
+    await act(async()=>pending.resolve(new Response(JSON.stringify({profile:{sub:'late',name:'Late',email:'late@example.com'},identity_token:'late-token',expires_at:new Date(Date.now()+60000).toISOString()}),{status:200})));
+    assert.equal(successes.length,0,'a late success after cancellation must be discarded');
+    pending=deferred();
+    await act(async()=>receive({state:buttons.at(-1).state,credential:'bad'}));
+    await act(async()=>pending.resolve(new Response(JSON.stringify({error:'Không thể xác minh tài khoản Google.',code:'INVALID_GOOGLE_CREDENTIAL'}),{status:401})));
+    assert.match(renderedText(renderer),/Không thể xác minh tài khoản/);assert.ok(button(renderer,'Thử lại Google'));
+    assert.equal(successes.length,0);
+  } finally {if(renderer)await act(async()=>renderer.unmount());globalThis.fetch=oldFetch;if(oldWindow===undefined)delete globalThis.window;else globalThis.window=oldWindow;}
+});

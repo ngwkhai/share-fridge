@@ -17,6 +17,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.114.0",
     "clsx": "^2.1.1",
+    "google-auth-library": "^11.0.2",
     "lucide-react": "^1.16.0",
     "pg": "^8.23.0",
     "react": "^18.3.1",

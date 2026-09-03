@@ -4,7 +4,8 @@ import crypto from 'node:crypto';
 import { HttpError, readJsonBody, sendError } from './http.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { hashPasscode, verifyPasscode, generateSessionToken, verifySessionToken } from './security.js';
+import { hashPasscode, verifyPasscode, generateSessionToken, verifySessionToken, verifyGoogleIdentity } from './security.js';
+import { googleClientId, verifyGoogleCredential } from './googleIdentity.js';
 import { createConfiguredRepository } from './repository.js';
 import { realtimeAvailable, issueRealtimeToken } from './realtime.js';
 import { suggestRecipesWithGemini, parseVoiceWithGemini } from './geminiService.js';
@@ -72,10 +73,10 @@ function limiterKey(value) {
 }
 
 let defaultRepository;
-export function createApiHandler(repository) {
+export function createApiHandler(repository, integrations = {}) {
   return async (req, res) => {
     try {
-      return await dispatchApiRequest(req, res, repository);
+      return await dispatchApiRequest(req, res, repository, integrations);
     } catch (error) {
       if (['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', '57P01', '57P02', '57P03', '42P01', '42703'].includes(error.code)) {
         sendError(res, new HttpError(503, 'DATABASE_UNAVAILABLE', 'Database service is unavailable.'));
@@ -86,7 +87,7 @@ export function createApiHandler(repository) {
 }
 export const handleApiRequest = createApiHandler();
 
-async function dispatchApiRequest(req, res, repository) {
+async function dispatchApiRequest(req, res, repository, integrations) {
   const url = new URL(req.url, 'http://localhost');
   const pathname = url.pathname;
   const method = req.method;
@@ -105,16 +106,17 @@ async function dispatchApiRequest(req, res, repository) {
     let realtime = false;
     try { realtime = await realtimeAvailable(repository || (defaultRepository ??= createConfiguredRepository())); } catch {}
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ google_client_id: null, capabilities: { google: false, push: false, photos: false, realtime } }));
+    res.end(JSON.stringify({ google_client_id: googleClientId(), capabilities: { google: !!googleClientId(), push: false, photos: false, realtime } }));
     return true;
   }
-  if ((pathname === '/api/auth/google' && method === 'POST') || (pathname === '/api/cron/expiry' && method === 'GET')) throw new HttpError(503, 'SERVICE_UNAVAILABLE', 'This integration is not available yet.');
+  if (pathname === '/api/auth/google' && method === 'POST' && !googleClientId()) throw new HttpError(503, 'GOOGLE_UNAVAILABLE', 'Đăng nhập Google hiện chưa khả dụng. Hãy dùng tên và mã phòng.');
+  if (pathname === '/api/cron/expiry' && method === 'GET') throw new HttpError(503, 'SERVICE_UNAVAILABLE', 'This integration is not available yet.');
   const needsDatabase = pathname !== '/healthz' && pathname !== '/api/openapi.json' && pathname.startsWith('/api/');
   let db = repository;
   const resolveDb = () => db ??= defaultRepository ??= createConfiguredRepository();
   let session, sessionRoom;
   // A single gate covers every current and future route in a room namespace.
-  const protectedPath = /^\/api\/(?:rooms\/|foods(?:\/|$)|shopping-items(?:\/|$)|ai(?:\/|$)|notifications(?:\/|$)|photos(?:\/|$)|realtime-token(?:\/|$))/.test(pathname);
+  const protectedPath = /^\/api\/(?:auth\/session(?:\/|$)|rooms\/|foods(?:\/|$)|shopping-items(?:\/|$)|ai(?:\/|$)|notifications(?:\/|$)|photos(?:\/|$)|realtime-token(?:\/|$))/.test(pathname);
   if (protectedPath) {
     const auth = req.headers.authorization;
     const match = typeof auth === 'string' && auth.match(/^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/i);
@@ -123,6 +125,9 @@ async function dispatchApiRequest(req, res, repository) {
     for (const code of url.searchParams.getAll('room_code')) assertRoomAccess(code, session);
   }
   if (needsDatabase) db = resolveDb();
+  // C026 will renew the nickname while retaining the existing room/profile/expiry.
+  // Reserve the authenticated route now; do not report a session update before it exists.
+  if (pathname === '/api/auth/session' && method === 'PATCH') throw new HttpError(503, 'SERVICE_UNAVAILABLE', 'Session updates are not available yet.');
   let bodyPromise;
   const parseJsonBody = () => {
     bodyPromise ??= readJsonBody(req).then(data => {
@@ -153,6 +158,17 @@ async function dispatchApiRequest(req, res, repository) {
     return true;
   }
 
+  if (pathname === '/api/auth/google' && method === 'POST') {
+    const ip = process.env.VERCEL === '1' ? String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown').split(',')[0].trim() : req.socket?.remoteAddress || 'unknown';
+    if (!(await db.chargeRateLimit(limiterKey(`google:${ip}`), 30))) throw new HttpError(429, 'RATE_LIMITED', 'Too many sign-in attempts.');
+    const data = await parseJsonBody();
+    fields(data, ['credential']);
+    const identity = await (integrations.verifyGoogleCredential || verifyGoogleCredential)(data.credential);
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(identity));
+    return true;
+  }
+
   // Both create routes use the same validation and duplicate protection.
   if ((pathname === '/api/auth/create-room' || pathname === '/api/rooms') && method === 'POST') {
     const ip = process.env.VERCEL === '1' ? String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown').split(',')[0].trim() : req.socket?.remoteAddress || 'unknown';
@@ -161,6 +177,8 @@ async function dispatchApiRequest(req, res, repository) {
     const data = await parseJsonBody();
     const passcode = validatePasscode(data.passcode);
     const nickname = boundedText(data.nickname, 'Bạn cùng phòng', 'Nickname');
+    const google_profile = data.google_identity_token === undefined ? undefined : verifyGoogleIdentity(data.google_identity_token);
+    if (google_profile === null) throw new HttpError(401, 'INVALID_GOOGLE_IDENTITY', 'Google identity is invalid or expired. Sign in again.');
     let code;
     if (data.code !== undefined) {
       code = roomCode(data.code);
@@ -174,12 +192,12 @@ async function dispatchApiRequest(req, res, repository) {
     }
     const name = boundedText(data.name, `Phòng ${code.slice(0, 3)}`, 'Room name');
     // Validate session configuration before mutating room state.
-    const token = generateSessionToken(code, nickname);
+    const token = generateSessionToken(code, nickname, google_profile);
     const { hash, salt } = hashPasscode(passcode);
     const room = await db.createRoom({ id: crypto.randomUUID(), code, name, passcode_hash: hash, salt, created_at: new Date().toISOString() });
     if (!room) throw new HttpError(409, 'ROOM_EXISTS', 'Room code already exists.');
     res.writeHead(201, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(pathname === '/api/rooms' ? publicRoom(room) : { room: publicRoom(room), token, nickname }));
+    res.end(JSON.stringify(pathname === '/api/rooms' ? publicRoom(room) : { room: publicRoom(room), token, nickname, ...(google_profile ? { google_profile } : {}) }));
     return true;
   }
 
@@ -189,6 +207,8 @@ async function dispatchApiRequest(req, res, repository) {
     const code = roomCode(data.code);
     const passcode = validatePasscode(data.passcode);
     const nickname = boundedText(data.nickname, 'Bạn cùng phòng', 'Nickname');
+    const google_profile = data.google_identity_token === undefined ? undefined : verifyGoogleIdentity(data.google_identity_token);
+    if (google_profile === null) throw new HttpError(401, 'INVALID_GOOGLE_IDENTITY', 'Google identity is invalid or expired. Sign in again.');
     // A success in another room cannot clear guesses against the target room.
     const keys = [limiterKey(`join-ip:${ip}`), limiterKey(`join-room:${code}`)];
     const login = await db.authenticateRoom(code, passcode, keys, verifyPasscode);
@@ -196,9 +216,9 @@ async function dispatchApiRequest(req, res, repository) {
     const room = login.room;
     if (!room) throw new HttpError(401, 'INVALID_CREDENTIALS', 'Room code or passcode is incorrect.');
     // Successful sign-ins do not clear accumulated failed attempts in the window.
-    const token = generateSessionToken(code, nickname);
+    const token = generateSessionToken(code, nickname, google_profile);
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ room: publicRoom(room), token, nickname }));
+    res.end(JSON.stringify({ room: publicRoom(room), token, nickname, ...(google_profile ? { google_profile } : {}) }));
     return true;
   }
 

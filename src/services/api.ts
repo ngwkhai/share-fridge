@@ -1,5 +1,5 @@
 import type { RoomSnapshot } from './roomSync';
-import type { FoodItem, CreateFoodDto, UpdateFoodDto, ParsedFoodItem, RecipeSuggestion, ShoppingItem, CreateShoppingItemDto, Room, RoomDetail, AuthSession, SessionPayload, CompartmentType } from '../types';
+import type { FoodItem, CreateFoodDto, UpdateFoodDto, ParsedFoodItem, RecipeSuggestion, ShoppingItem, CreateShoppingItemDto, Room, RoomDetail, AuthSession, SessionPayload, CompartmentType, GoogleProfile, GoogleIdentity, PublicConfig } from '../types';
 
 export interface SessionCache {
   code: string;
@@ -9,8 +9,7 @@ export interface SessionCache {
   token: string;
   cached_at: number;
   room?: Room;
-  google_email?: string;
-  user_avatar?: string;
+  google_profile?: GoogleProfile;
 }
 
 const SESSION_CACHE_KEY = 'sharefridge_session_cache';
@@ -21,6 +20,9 @@ const notifySession = () => { sessionGeneration++; sessionListeners.forEach(list
 
 export const sessionCache = {
   save(cache: SessionCache) {
+    const { google_profile, ...rest } = cache;
+    if (google_profile !== undefined && !profile(google_profile)) throw new Error('Invalid Google profile.');
+    cache = { ...rest, ...(google_profile ? { google_profile: publicProfile(google_profile) } : {}) };
     try {
       localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(cache));
       localStorage.setItem('sharefridge_room_code', cache.code);
@@ -39,7 +41,8 @@ export const sessionCache = {
       const raw = localStorage.getItem(SESSION_CACHE_KEY);
       if (!raw) return null;
       const value = JSON.parse(raw);
-      return object(value) && roomCode(value.code) && nonempty(value.name) && nonempty(value.nickname) && nonempty(value.token) && typeof value.cached_at === 'number' ? value as unknown as SessionCache : null;
+      if (!object(value) || !roomCode(value.code) || !nonempty(value.name) || !nonempty(value.nickname) || !nonempty(value.token) || typeof value.cached_at !== 'number' || !optional(value.google_profile, profile)) return null;
+      return { code: value.code, name: value.name, nickname: value.nickname, token: value.token, cached_at: value.cached_at, passcode: typeof value.passcode === 'string' ? value.passcode : '', ...(room(value.room) ? { room: value.room } : {}), ...(profile(value.google_profile) ? { google_profile: publicProfile(value.google_profile) } : {}) };
     } catch {
       return null;
     }
@@ -137,7 +140,12 @@ const strings = (value: unknown): value is string[] => Array.isArray(value) && v
 const optional = (value: unknown, guard: (x: unknown) => boolean, nullable = false) => value === undefined || (nullable && value === null) || guard(value);
 const room: Guard<Room> = (x): x is Room => object(x) && nonempty(x.id) && roomCode(x.code) && nonempty(x.name) && date(x.created_at);
 const roomDetail: Guard<RoomDetail> = (x): x is RoomDetail => room(x) && object(x) && integer(x.active_food_count) && x.active_food_count >= 0 && integer(x.urgent_food_count) && x.urgent_food_count >= 0;
-const profile = (x: unknown) => object(x) && nonempty(x.sub) && nonempty(x.name) && nonempty(x.email) && optional(x.picture, string);
+const profile = (x: unknown): x is GoogleProfile => {
+  if (!object(x) || !nonempty(x.sub) || x.sub.length > 255 || !nonempty(x.name) || x.name.length > 100 || !nonempty(x.email) || x.email.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x.email)) return false;
+  if (x.picture !== undefined) { if (!string(x.picture) || x.picture.length > 1024) return false; try { const url = new URL(x.picture); if (url.protocol !== 'https:' || url.username || url.password) return false; } catch { return false; } }
+  return true;
+};
+const publicProfile = (x: GoogleProfile): GoogleProfile => ({ sub: x.sub, name: x.name, email: x.email, ...(x.picture ? { picture: x.picture } : {}) });
 const authSession: Guard<AuthSession> = (x): x is AuthSession => object(x) && room(x.room) && nonempty(x.token) && nonempty(x.nickname) && optional(x.google_profile, profile);
 const sessionPayload: Guard<SessionPayload> = (x): x is SessionPayload => object(x) && roomCode(x.room_code) && nonempty(x.nickname) && integer(x.exp) && optional(x.google_profile, profile);
 const food: Guard<FoodItem> = (x): x is FoodItem => object(x) && nonempty(x.id) && roomCode(x.room_code) && nonempty(x.name) && compartment(x.compartment) && date(x.added_date) && date(x.expiry_date) && integer(x.days_remaining) && string(x.status) && ['FRESH','COOK_SOON','EXPIRED','CONSUMED'].includes(x.status) && ['quantity','container_tag','created_by'].every(key => optional(x[key], string)) && ['photo_url','storage_path','notes','consumed_by'].every(key => optional(x[key], string, true)) && optional(x.consumed_at, date, true);
@@ -182,28 +190,41 @@ async function request<T>(path: string, validate: Guard<T>, options: { method?: 
 export const api = {
   sessionCache,
   foodCache,
+  async getConfig(): Promise<PublicConfig> {
+    return request('/api/config', (x): x is PublicConfig => object(x) && (x.google_client_id === null || nonempty(x.google_client_id)) && object(x.capabilities) && ['google','push','photos','realtime'].every(key => typeof (x.capabilities as Record<string,unknown>)[key] === 'boolean'), { public: true });
+  },
+  async verifyGoogleCredential(credential: string): Promise<GoogleIdentity> {
+    const generation = sessionGeneration;
+    const identity = await request('/api/auth/google', (x): x is GoogleIdentity => object(x) && profile(x.profile) && nonempty(x.identity_token) && date(x.expires_at) && Date.parse(x.expires_at) > Date.now(), { method: 'POST', public: true, body: { credential } });
+    if (generation !== sessionGeneration) throw new ApiError('Phiên đã thay đổi. Vui lòng thử lại.', 0, 'SESSION_CHANGED', '/api/auth/google');
+    return identity;
+  },
   async getRealtimeToken() {
     return request('/api/realtime-token', (x): x is { token: string; expires_at: string } => object(x) && nonempty(x.token) && date(x.expires_at));
   },
   async getHealth() {
     return request('/healthz', (x): x is { status: 'ok'; version: string; timestamp: string } => object(x) && x.status === 'ok' && nonempty(x.version) && date(x.timestamp), { public: true });
   },
-  async createRoomWithPasscode(code?: string, name?: string, passcode?: string, nickname?: string): Promise<AuthSession> {
+  async createRoomWithPasscode(code?: string, name?: string, passcode?: string, nickname?: string, googleIdentityToken?: string): Promise<AuthSession> {
     const generation = sessionGeneration;
-    const data = await request('/api/auth/create-room', authSession, { method: 'POST', public: true, body: { code, name, passcode, nickname } });
+    const data = await request('/api/auth/create-room', authSession, { method: 'POST', public: true, body: { code, name, passcode, nickname, google_identity_token: googleIdentityToken } });
     if (generation !== sessionGeneration) throw new ApiError('Phiên đã thay đổi. Vui lòng thử lại.', 0, 'SESSION_CHANGED', '/api/auth');
-    sessionCache.save({ room: data.room, code: data.room.code, name: data.room.name, passcode: passcode || '', nickname: data.nickname, token: data.token, cached_at: Date.now() });
+    sessionCache.save({ room: data.room, code: data.room.code, name: data.room.name, passcode: passcode || '', nickname: data.nickname, token: data.token, cached_at: Date.now(), ...(data.google_profile ? { google_profile: data.google_profile } : {}) });
     return data;
   },
-  async joinRoomWithPasscode(code: string, passcode: string, nickname?: string): Promise<AuthSession> {
+  async joinRoomWithPasscode(code: string, passcode: string, nickname?: string, googleIdentityToken?: string): Promise<AuthSession> {
     const generation = sessionGeneration;
-    const data = await request('/api/auth/join-room', authSession, { method: 'POST', public: true, body: { code, passcode, nickname } });
+    const data = await request('/api/auth/join-room', authSession, { method: 'POST', public: true, body: { code, passcode, nickname, google_identity_token: googleIdentityToken } });
     if (generation !== sessionGeneration) throw new ApiError('Phiên đã thay đổi. Vui lòng thử lại.', 0, 'SESSION_CHANGED', '/api/auth');
-    sessionCache.save({ room: data.room, code: data.room.code, name: data.room.name, passcode, nickname: data.nickname, token: data.token, cached_at: Date.now() });
+    sessionCache.save({ room: data.room, code: data.room.code, name: data.room.name, passcode, nickname: data.nickname, token: data.token, cached_at: Date.now(), ...(data.google_profile ? { google_profile: data.google_profile } : {}) });
     return data;
   },
   async verifyToken(token?: string) {
-    return request('/api/auth/verify-token', (x): x is { valid: true; payload: SessionPayload; room: Room } => object(x) && x.valid === true && sessionPayload(x.payload) && room(x.room), { method: 'POST', public: true, body: { token: token || getToken() } });
+    const selectedToken = token || getToken();
+    const result = await request('/api/auth/verify-token', (x): x is { valid: true; payload: SessionPayload; room: Room } => object(x) && x.valid === true && sessionPayload(x.payload) && room(x.room), { method: 'POST', public: true, body: { token: selectedToken } });
+    const cache = sessionCache.get();
+    if (cache?.token === selectedToken && JSON.stringify(cache.google_profile) !== JSON.stringify(result.payload.google_profile)) sessionCache.save({ ...cache, google_profile: result.payload.google_profile });
+    return result;
   },
   async createRoom(code?: string, name?: string, passcode?: string): Promise<Room> {
     return request('/api/rooms', room, { method: 'POST', public: true, body: { code, name, passcode } });

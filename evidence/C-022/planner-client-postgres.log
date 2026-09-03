@@ -1,0 +1,16 @@
+
+> share-fridge@1.0.0 test:client-postgres
+> node --test --test-timeout=60000 tests/client_postgres.integration.js
+
+✔ two independent PostgreSQL workers move a shopping item once under concurrent requests (352.917875ms)
+✔ uncheck/recheck, moved-food deletion, and fresh worker retries do not duplicate the same purchase (93.683541ms)
+✔ food insert failure rolls back bought state and replay marker; retry succeeds after recovery (9.194084ms)
+✔ PostgreSQL edit is room-scoped, preserves history identity, and normalizes optional null fields (13.323958ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 540.135584

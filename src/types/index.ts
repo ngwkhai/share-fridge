@@ -92,3 +92,6 @@ export interface UpdateFoodDto {
 export interface GoogleProfile { sub: string; name: string; email: string; picture?: string }
 export interface SessionPayload { room_code: string; nickname: string; exp: number; google_profile?: GoogleProfile }
 export interface AuthSession { room: Room; token: string; nickname: string; google_profile?: GoogleProfile }
+
+export interface GoogleIdentity { profile: GoogleProfile; identity_token: string; expires_at: string }
+export interface PublicConfig { google_client_id: string | null; capabilities: { google: boolean; push: boolean; photos: boolean; realtime: boolean } }

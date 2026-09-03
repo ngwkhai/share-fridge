@@ -1,0 +1,13 @@
+- main:
+  - img "ShareFridge Logo"
+  - heading "ShareFridge" [level=2]
+  - paragraph: Tủ Lạnh Phòng Trọ
+  - status: Đăng nhập Google hiện chưa khả dụng. Hãy dùng tên và mã phòng.
+  - generic: thông tin phòng
+  - 'textbox "Mã PIN 6 số (VD: 123456)" [active]'
+  - textbox "Mật khẩu phòng (Passcode)"
+  - textbox "Tên của bạn"
+  - button "Vào tủ lạnh" [disabled]:
+    - generic: Vào tủ lạnh
+  - button "Tạo phòng mới cho 2 người":
+    - generic: Tạo phòng mới cho 2 người

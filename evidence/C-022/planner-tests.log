@@ -1,0 +1,87 @@
+✔ GET /healthz returns ok and 200 (29.263834ms)
+✔ GET /api/openapi.json returns valid spec (61.811ms)
+✔ POST /api/rooms and GET /api/rooms/:code works (239.889167ms)
+✔ Food CRUD and status calculation works (4.424875ms)
+✔ AI parse-voice endpoint returns structured JSON (2.192042ms)
+✔ App first load and retry never claim an empty fridge (cached room) (49.665667ms)
+✔ App first load and retry never claim an empty fridge (legacy room-less session) (18.5315ms)
+✔ App keeps the last complete snapshot visible when refreshing fails (9.044625ms)
+✔ App displays verified profile in header/settings and clears it on external session logout (29.430125ms)
+✔ actual Google button ignores cancelled credentials and exposes verification errors without profiles (6.563417ms)
+✔ Security Utils: Hashing and Verification works (365.992292ms)
+✔ Security Utils: Session Token Generation and Verification works (0.5725ms)
+✔ API Auth: Create Room with Passcode and Join with Passcode (433.984708ms)
+✔ API Auth: Verify Token endpoint (2.907875ms)
+✔ actual client creates, edits, consumes, reads history, moves shopping exactly once, and deletes (418.97575ms)
+✔ invalid DTOs and boolean coercion fail 400 without mutations (28.967792ms)
+✔ actual client throws typed 401/403/404/500 errors; room failure never auto-recreates (44.345875ms)
+✔ malformed success, non-JSON error and offline connection never return success-shaped data (2.024667ms)
+✔ actual notification client uses documented route; malformed subscriptions are rejected (7.609459ms)
+✖ every planning method/path exists in runtime spec; all schemas compile and required shapes are present (63.52175ms)
+✔ all actual client HTTP responses match the corresponding runtime operation schema (25.963959ms)
+✔ future integrations expose explicit unavailable responses, config works without a database (13.520291ms)
+✔ E2E Full Roommate Flow: Room Creation -> Voice Add -> Expiry Warning -> AI Recipe Cook -> Shopping List (305.310625ms)
+✔ Gemini Service: suggestRecipes returns valid structured recipes (216.130667ms)
+✔ Gemini Service: parseVoice parses Vietnamese complex sentence (0.400875ms)
+✔ API Endpoints: /api/ai/suggest-recipes and /api/ai/parse-voice respond via HTTP (12.134833ms)
+✔ real RSA verification rejects fake signature, expired, wrong audience/issuer and unverified claims (183.095958ms)
+✔ actual client verifies two stable identities, enforces PIN, persists profile through create/join/reload, and clears on logout (163.840167ms)
+✔ verified room payload repairs tampered cache profile; malformed profiles rejected and legacy sessions remain valid (43.668792ms)
+✔ missing provider configuration is public false/null and Google auth fails safely without a database (2.694ms)
+✔ certificate transport aborts a stalled fetch and never retries a 503 (128.078416ms)
+✔ logout during real Google verification rejects the late identity response (1.7535ms)
+✔ actual realtime lifecycle refreshes token, recreates failed channels, and cleans timers/listeners/stale callbacks (2.791458ms)
+✔ realtime config requires matching legacy project key, not presence or a service role (6.251709ms)
+✔ room JWT is authenticated, signed, scoped and bounded by room session expiry (1.961708ms)
+✔ every data route rejects missing and malformed Bearer sessions (363.177208ms)
+✔ a second room cannot read, mutate, consume, delete or subscribe in the first room (18.819333ms)
+✔ duplicate room creation through either endpoint preserves credentials and records (244.946458ms)
+✔ room responses whitelist public fields including verify-token and legacy creation (90.715ms)
+✔ room code, mandatory PIN and nickname types/bounds are validated on both create routes (40.876875ms)
+✔ unknown-room and tampered tokens cannot authorize requests (8.387041ms)
+✔ a valid signature never substitutes for required well-typed unexpired session claims (0.390375ms)
+✔ production rejects absent/default/weak session secrets before inserting a room (2.180209ms)
+✔ malformed JSON is 400 and parsed serverless bodies complete without stream listeners (156.304625ms)
+✔ actor fields are derived from the session (0.969708ms)
+✔ legacy password hashes remain readable and malformed hashes fail without throwing (109.573167ms)
+✔ failures never expose internal exception details (1.210625ms)
+✔ failed PIN attempts are throttled even when the caller spoofs X-Forwarded-For (169.850541ms)
+✔ served OpenAPI declares auth routes, protected operations and safe error/room schemas (1.433875ms)
+✔ two controllers use actual HTTP: delete final item, reload/reconnect remain empty and no cache POST replay (112.879792ms)
+✔ late pre-mutation snapshot cannot resurrect a deleted row (0.213334ms)
+✔ logout and room switch invalidate delayed reads, callbacks and auth failures (0.153709ms)
+✔ late successful write and queued writes cannot affect a replacement session (0.340958ms)
+✔ offline writes never execute; failed refresh keeps snapshot; 403 retains session; 401 clears it (0.257084ms)
+✔ SUBSCRIBED waits for refreshed snapshot before connected status (0.079459ms)
+✔ actual cache preserves stable IDs/absolute expiry, ages status, accepts empty, and clears on logout (0.523875ms)
+✔ canonical session token wins cross-tab write ordering and late login cannot restore logout (0.617792ms)
+✔ session switch during post-write refresh rejects completion for the old UI (0.130333ms)
+✔ Session Cache & Room Auto-Creation: API creates room with passcode and verifies token (189.993708ms)
+✔ Supabase Schema SQL: File exists and contains complete PostgreSQL schema (0.993042ms)
+✔ Vercel Config: vercel.json is valid and contains required rewrites & PWA headers (1.005541ms)
+✔ Vercel Serverless Function: api/index.js handles healthz and auth requests (2.280708ms)
+ℹ tests 62
+ℹ suites 0
+ℹ pass 61
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1961.616334
+
+✖ failing tests:
+
+test at tests/client_contract.test.js:153:1
+✖ every planning method/path exists in runtime spec; all schemas compile and required shapes are present (63.52175ms)
+  AssertionError [ERR_ASSERTION]: patch /api/auth/session
+      at TestContext.<anonymous> (file:///Users/nguyendinhkhai/Documents/Projects/ShareFridge/tests/client_contract.test.js:162:50)
+      at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+      at async Test.run (node:internal/test_runner/test:1113:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:788:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

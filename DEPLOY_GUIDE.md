@@ -73,3 +73,14 @@ Khi thiếu cấu hình hợp lệ, ứng dụng hiển thị **Cập nhật đ�
 Cache chỉ phục vụ đọc dữ liệu cũ, không được POST lên API. Lỗi tải giữ snapshot cũ và cảnh báo; chưa có snapshot thì hiển thị chờ/thử lại. Ghi dữ liệu yêu cầu mạng và thành công từ máy chủ. Đăng xuất hoặc phiên 401 xóa cache của phòng hiện tại; phản hồi muộn không được khôi phục phiên. 403 không đăng xuất một phiên còn hợp lệ.
 
 Kiểm tra local bằng `npm test`, `TEST_DATABASE_URL=... npm run test:sync-postgres`, `npm run build`. Các kiểm tra này không thay cho nghiệm thu hai trình duyệt trên Supabase đã triển khai. Cần đo riêng độ trễ thêm/sửa/xóa/đã nấu và reconnect trên URL thật; polling không chứng minh mục tiêu dưới 500 ms.
+
+
+## Google Identity Services
+
+Tạo OAuth client loại Web application trong Google Cloud Console và đặt `GOOGLE_CLIENT_ID` trên từng môi trường Vercel cần dùng. Khai báo chính xác **Authorized JavaScript origins** (scheme + hostname + port): origin Preview ổn định đã được cấp phép, origin production và `http://localhost:5173` nếu kiểm thử local. Popup GIS dùng callback JavaScript; ứng dụng không nhận token qua redirect URL. Không cần client secret cho xác minh ID token này và không đưa thông tin bí mật vào trình duyệt.
+
+`GET /api/config` chỉ công bố client ID và khả năng sẵn có. Thiếu hoặc sai định dạng cấu hình thì Google hiện chưa khả dụng, người dùng vẫn nhập tên/mã phòng/mật khẩu bình thường. Cấu hình client ID không chứng minh origin/consent đã đúng; phải kiểm thử thực tế. API Google còn yêu cầu PostgreSQL và SESSION_SECRET để giới hạn yêu cầu và ký danh tính.
+
+Ứng dụng dùng nút chính thức từ `https://accounts.google.com/gsi/client`, gửi credential bằng JSON tới `/api/auth/google`, xác minh chữ ký bằng chứng thư Google và kiểm tra audience, issuer, expiry, email_verified cùng stable `sub`. Không chấp nhận profile do trình duyệt tự khai. Token danh tính bổ sung tồn tại tối đa 10 phút, không thể dùng làm token phòng; tạo/tham gia vẫn bắt buộc mật khẩu phòng. Cookie Google không được dùng để cấp quyền phòng; server không tạo cookie đăng nhập từ một POST cross-site. Bản lưu phòng giữ profile từ phiên đã ký; rời phòng xóa phiên/profile và tắt tự chọn tài khoản Google.
+
+Nghiệm thu trên origin được cấp phép: dùng hai tài khoản Google thật, kiểm tra hai `sub` khác nhau nhưng không thay đổi khi đăng nhập lại; tạo/tham gia cùng phòng bằng đúng mật khẩu, reload giữ tên/ảnh/email; thử sai mật khẩu và phòng khác vẫn bị từ chối; đóng popup, hủy khi đang xác minh và rời phòng không tạo lại profile. Không dán credential, identity_token hoặc room token vào ảnh/log/chứng cứ. Các fixture ký RSA trong test chỉ chứng minh ranh giới xác minh; chúng không thay cho nghiệm thu Google thật.

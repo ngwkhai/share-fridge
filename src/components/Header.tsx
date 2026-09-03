@@ -36,7 +36,8 @@ export const Header: React.FC<HeaderProps> = ({
             {userAvatar ? (
               <img
                 src={userAvatar}
-                alt={nickname}
+                referrerPolicy="no-referrer"
+                alt={`Ảnh của ${nickname}`}
                 className="w-10 h-10 rounded-2xl object-cover ring-2 ring-fresh-400/40 shadow-md"
               />
             ) : (

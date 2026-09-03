@@ -74,7 +74,8 @@ endpoint('post','/api/auth/create-room','AuthSession',{auth:'public',input:'Room
 endpoint('post','/api/auth/join-room','AuthSession',{auth:'public',input:'RoomJoin'});
 endpoint('post','/api/auth/verify-token','VerifiedSession',{auth:'public',input:object({token:str()})});
 paths['/api/auth/verify-token'].post.responses[401].content = json('InvalidSession');
-endpoint('post','/api/auth/google','GoogleSession',{auth:'public',input:object({credential:str()}),unavailable:'C022: returns 503 until verified Google integration is implemented.'});
+endpoint('post','/api/auth/google','GoogleSession',{auth:'public',input:object({credential:str(8192,1)},['credential'],{additionalProperties:false})});
+endpoint('patch','/api/auth/session','AuthSession',{input:object({nickname:str(100,1)},['nickname'],{additionalProperties:false}),unavailable:'C026: returns 503 until nickname renewal is implemented.'});
 endpoint('post','/api/rooms','Room',{auth:'public',input:'RoomCreate',status:201});
 endpoint('get','/api/rooms/{code}','RoomDetail');
 endpoint('get','/api/foods','FoodList',{parameters:[query('room_code',code),query('status',{type:'string',enum:['active','consumed']},false)]});

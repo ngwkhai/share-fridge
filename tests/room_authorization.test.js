@@ -227,7 +227,7 @@ test('served OpenAPI declares auth routes, protected operations and safe error/r
   assert.equal(spec.components.securitySchemes.RoomBearer.scheme, 'bearer');
   for (const [path, operations] of Object.entries(spec.paths)) {
     for (const operation of Object.values(operations)) {
-      if (['/healthz','/readyz','/api/openapi.json','/api/config','/api/rooms'].includes(path) || path.startsWith('/api/auth/')) {
+      if (['/healthz','/readyz','/api/openapi.json','/api/config','/api/rooms','/api/auth/create-room','/api/auth/join-room','/api/auth/verify-token','/api/auth/google'].includes(path)) {
         assert.deepEqual(operation.security, [], path);
         continue;
       }

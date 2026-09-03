@@ -1,63 +1,55 @@
-import React, { useState } from 'react';
-
-export interface GoogleUserProfile {
-  name: string;
-  email: string;
-  picture?: string;
-  sub: string;
-}
+import React, { useEffect, useRef, useState } from 'react';
+import { api } from '../services/api';
+import { mountGoogleButton } from '../services/googleIdentity';
+import type { GoogleIdentity } from '../types';
 
 interface GoogleAuthButtonProps {
-  onSuccess: (profile: GoogleUserProfile) => void;
-  onError?: (err: any) => void;
+  onSuccess: (identity: GoogleIdentity) => void;
+  onError?: (error: Error) => void;
 }
 
-export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({ onSuccess }) => {
-  const [loading, setLoading] = useState(false);
-
-  const handleGoogleClick = () => {
-    setLoading(true);
-    // Simulate / Trigger Google OAuth One-Tap & Identity Prompt
-    setTimeout(() => {
-      // Mock / Default Google Profile for fast onboarding
-      const profile: GoogleUserProfile = {
-        name: 'Nguyễn Đình Khải',
-        email: 'khaind.hrt@gmail.com',
-        picture: 'https://lh3.googleusercontent.com/a/default-user=s96-c',
-        sub: 'google-user-' + Math.floor(100000 + Math.random() * 900000)
-      };
-      onSuccess(profile);
-      setLoading(false);
-    }, 400);
-  };
-
+export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({ onSuccess, onError }) => {
+  const element = useRef<HTMLDivElement>(null);
+  const callbacks = useRef({ onSuccess, onError });
+  callbacks.current = { onSuccess, onError };
+  const [attempt, setAttempt] = useState(0);
+  const [status, setStatus] = useState<'loading' | 'ready' | 'waiting' | 'verifying' | 'unavailable' | 'error'>('loading');
+  const [message, setMessage] = useState('Đang kiểm tra kết nối Google...');
+  const current = useRef('');
+  useEffect(() => {
+    let active = true;
+    let cleanup: (() => void) | undefined;
+    const state = crypto.randomUUID();
+    current.current = state;
+    setStatus('loading'); setMessage('Đang kiểm tra kết nối Google...');
+    void api.getConfig().then(async config => {
+      if (!active) return;
+      if (!config.capabilities.google || !config.google_client_id) { setStatus('unavailable'); setMessage('Đăng nhập Google hiện chưa khả dụng. Hãy dùng tên và mã phòng.'); return; }
+      if (!element.current) return;
+      const dispose = await mountGoogleButton(element.current, config.google_client_id, state, response => {
+        if (!active || current.current !== state) return;
+        setStatus('verifying'); setMessage('Đang xác minh tài khoản Google...');
+        void api.verifyGoogleCredential(response.credential).then(identity => {
+          if (!active || current.current !== state) return;
+          setStatus('ready'); setMessage('Đã xác minh tài khoản Google. Nhập mật khẩu phòng để tiếp tục.');
+          callbacks.current.onSuccess(identity);
+        }).catch(error => {
+          if (!active || current.current !== state) return;
+          setStatus('error'); setMessage(error.message || 'Không thể xác minh Google. Hãy thử lại.'); callbacks.current.onError?.(error);
+        });
+      }, () => { if (active && current.current === state) { setStatus('waiting'); setMessage('Chọn tài khoản trong cửa sổ Google. Nếu đã đóng cửa sổ, bạn có thể thử lại hoặc dùng mã phòng.'); } });
+      if (!active) { dispose(); return; }
+      cleanup = dispose; setStatus('ready'); setMessage('Google giúp điền tên và ảnh. Bạn vẫn cần mật khẩu phòng.');
+    }).catch(error => { if (active) { setStatus('error'); setMessage(error.message || 'Không thể kết nối Google.'); callbacks.current.onError?.(error); } });
+    return () => { active = false; if (current.current === state) current.current = ''; cleanup?.(); };
+  }, [attempt]);
+  const cancel = () => { current.current = ''; setAttempt(value => value + 1); };
   return (
-    <button
-      type="button"
-      onClick={handleGoogleClick}
-      disabled={loading}
-      className="w-full py-3 px-4 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200/90 font-bold rounded-2xl text-xs flex items-center justify-center gap-2.5 shadow-2xs hover:shadow-xs transition-all active:scale-98 disabled:opacity-50"
-    >
-      {/* Official Multicolored Google 'G' Logo */}
-      <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-        <path
-          fill="#4285F4"
-          d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z"
-        />
-        <path
-          fill="#34A853"
-          d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24Z"
-        />
-        <path
-          fill="#FBBC05"
-          d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.98 0 12s.45 3.82 1.25 5.42l4.03-3.15Z"
-        />
-        <path
-          fill="#EA4335"
-          d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98Z"
-        />
-      </svg>
-      <span>{loading ? 'Đang kết nối Google...' : 'Tiếp tục với Google'}</span>
-    </button>
+    <div className="space-y-2 text-left">
+      <div ref={element} className={status === 'verifying' ? 'pointer-events-none opacity-50' : ''} aria-busy={status === 'verifying'} />
+      <p role={status === 'error' ? 'alert' : 'status'} className="text-xs text-slate-600">{message}</p>
+      {(status === 'waiting' || status === 'verifying') && <button type="button" onClick={cancel} className="min-h-11 rounded-xl border border-slate-200 px-3 text-sm text-slate-700">Hủy đăng nhập Google</button>}
+      {status === 'error' && <button type="button" onClick={cancel} className="min-h-11 rounded-xl border border-slate-200 px-3 text-sm text-slate-700">Thử lại Google</button>}
+    </div>
   );
 };

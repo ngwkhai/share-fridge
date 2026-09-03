@@ -167,6 +167,30 @@ test('every planning method/path exists in runtime spec; all schemas compile and
   for(const [name,required] of Object.entries({FoodList:['items','total'],ShoppingList:['items','total'],Deleted:['success','deleted_id'],RoomDetail:['id','code','name','created_at','active_food_count','urgent_food_count'],RecipeSuggestion:['food_ids','ingredients_missing','instructions'],RecipeResult:['source','generated_at','suggestions']})) for(const field of required) assert.ok(schema.components.schemas[name].required.includes(field),`${name}.${field}`);
 });
 
+test('planned session renewal is authenticated and explicitly unavailable without changing the session',async()=>{
+  const path='/api/auth/session';
+  const operation=(await raw('/api/openapi.json')).body.paths[path].patch;
+  assert.deepEqual(operation.security,[{RoomBearer:[]}]);
+  assert.match(operation['x-availability'],/C026/);
+  assert.deepEqual(operation.responses[200].content['application/json'].schema,{$ref:'#/components/schemas/AuthSession'});
+  const validate=ajv.compile(operation.requestBody.content['application/json'].schema);
+  for(const nickname of ['A','x'.repeat(100)]) assert.equal(validate({nickname}),true);
+  for(const input of [{},{nickname:''},{nickname:'x'.repeat(101)},{nickname:4},{nickname:'New',room_code:second.room.code}]) assert.equal(validate(input),false);
+
+  for(const token of [null,'invalid.token']) {
+    const result=await raw(path,'PATCH',{nickname:'New nickname'},token);
+    assert.equal(result.status,401);
+    assert.deepEqual(result.body,{error:'A valid room session is required.',code:'UNAUTHORIZED'});
+  }
+  const before=await raw('/api/auth/verify-token','POST',{token:first.token});
+  const unavailable=await raw(path,'PATCH',{nickname:'New nickname'});
+  assert.equal(unavailable.status,503);
+  assert.deepEqual(unavailable.body,{error:'Session updates are not available yet.',code:'SERVICE_UNAVAILABLE'});
+  const after=await raw('/api/auth/verify-token','POST',{token:first.token});
+  assert.equal(before.status,200);
+  assert.deepEqual(after,before,'the placeholder must not alter or renew the existing session');
+});
+
 test('all actual client HTTP responses match the corresponding runtime operation schema',()=>{
   for(const result of seen.filter(item=>!item.fault)) {
     const path=new URL(result.path,base).pathname;

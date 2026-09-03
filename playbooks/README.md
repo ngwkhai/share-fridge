@@ -26,3 +26,4 @@ the next card touching that stack starts from the gotchas instead of rediscoveri
 | [postgres-durable-repository.md](postgres-durable-repository.md) | Pooled Node PostgreSQL transactions, repeatable migration and room RLS verification |
 | [typescript-http-contract.md](typescript-http-contract.md) | Actual TypeScript client HTTP tests, generated spec drift, DTO normalization and durable shopping transfer retries |
 | [room-snapshot-sync.md](room-snapshot-sync.md) | Authoritative empty caches, session races, private revision invalidation and Realtime lifecycle |
+| [google-identity-verification.md](google-identity-verification.md) | Google GIS, real RSA credential validation, certificate transport deadlines and cancellation-safe session/profile handling |

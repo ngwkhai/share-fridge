@@ -9,6 +9,7 @@ interface SettingsModalProps {
   passcode?: string;
   nickname?: string;
   googleEmail?: string;
+  userAvatar?: string;
   onUpdateNickname?: (nick: string) => void;
   onLogout: () => void;
 }
@@ -21,6 +22,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   passcode = '1234',
   nickname = 'Bạn cùng phòng',
   googleEmail,
+  userAvatar,
   onUpdateNickname,
   onLogout
 }) => {
@@ -73,7 +75,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <div className="p-3.5 bg-fresh-500/10 rounded-2xl border border-fresh-200/80 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-fresh-600 text-white flex items-center justify-center font-bold text-sm shadow-xs">
-              <User className="w-4 h-4" />
+              <>{userAvatar ? <img src={userAvatar} alt={`Ảnh của ${nickname}`} referrerPolicy="no-referrer" className="w-9 h-9 rounded-xl object-cover" /> : <User className="w-4 h-4" />}</>
             </div>
             <div>
               <div className="text-[10px] text-fresh-800 font-bold uppercase tracking-wider">Tên của bạn</div>

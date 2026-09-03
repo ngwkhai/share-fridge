@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api } from './services/api';
-import { CreateFoodDto, ParsedFoodItem, RecipeSuggestion } from './types';
+import { CreateFoodDto, ParsedFoodItem, RecipeSuggestion, GoogleIdentity } from './types';
 import { Header } from './components/Header';
 import { PulseStrip } from './components/PulseStrip';
 import { FilterBar, FilterCategory } from './components/FilterBar';
@@ -12,7 +12,8 @@ import { ShoppingListTab } from './components/ShoppingListTab';
 import { BottomNav, TabType } from './components/BottomNav';
 import { NotificationModal } from './components/NotificationModal';
 import { SettingsModal } from './components/SettingsModal';
-import { GoogleAuthButton, GoogleUserProfile } from './components/GoogleAuthButton';
+import { GoogleAuthButton } from './components/GoogleAuthButton';
+import { signOutGoogle } from './services/googleIdentity';
 import { useRoomSync } from './hooks/useRoomSync';
 import { PlusCircle, Search, Lock, User, ArrowRight } from 'lucide-react';
 
@@ -31,8 +32,8 @@ export default function App() {
   useEffect(() => {
     setCurrentPasscode(initialCache?.passcode || '');
     setCurrentNickname(initialCache?.nickname || 'Bạn cùng phòng');
-    setGoogleEmail(initialCache?.google_email);
-    setUserAvatar(initialCache?.user_avatar);
+    setGoogleEmail(initialCache?.google_profile?.email);
+    setUserAvatar(initialCache?.google_profile?.picture);
   }, [initialCache]);
 
   const [activeFilter, setActiveFilter] = useState<FilterCategory>('ALL');
@@ -51,10 +52,25 @@ export default function App() {
   const [isCreateMode, setIsCreateMode] = useState(false);
   const [inputCode, setInputCode] = useState('');
   const [inputPasscode, setInputPasscode] = useState('');
-  const [inputNickname, setInputNickname] = useState('Khải');
+  const [inputNickname, setInputNickname] = useState('');
+  const [googleIdentity, setGoogleIdentity] = useState<GoogleIdentity | null>(null);
+  const [googleAttempt, setGoogleAttempt] = useState(0);
+  const authAttempt = useRef(0);
   const [newRoomName, setNewRoomName] = useState('Phòng 302');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const previousSession = useRef(initialCache?.token);
+  useEffect(() => {
+    const token = initialCache?.token;
+    if (token || (previousSession.current && !token)) {
+      authAttempt.current++;
+      setGoogleIdentity(null);
+      setGoogleAttempt(value => value + 1);
+      if (!token) { signOutGoogle(); setInputNickname(''); }
+    }
+    previousSession.current = token;
+  }, [initialCache?.token]);
+
 
   useEffect(() => {
     setIsQuickAddOpen(false); setIsVoiceOpen(false); setIsRecipeOpen(false); setIsNotifOpen(false); setIsSettingsOpen(false); setVoiceDraftData(undefined); setError('');
@@ -65,11 +81,13 @@ export default function App() {
     setLoading(true);
     setError('');
     try {
-      const pCode = inputPasscode.trim() || '1234';
+      const pCode = inputPasscode.trim();
+      if (!/^\d{4,6}$/.test(pCode)) throw new Error('Nhập mật khẩu phòng gồm 4 đến 6 chữ số.');
+      if (googleIdentity && Date.parse(googleIdentity.expires_at) <= Date.now()) throw new Error('Xác minh Google đã hết hạn. Hãy chọn lại tài khoản Google.');
       const rName = newRoomName.trim() || 'Phòng mới';
-      const nick = inputNickname.trim() || 'Khải';
+      const nick = inputNickname.trim() || 'Bạn cùng phòng';
 
-      await api.createRoomWithPasscode(undefined, rName, pCode, nick);
+      await api.createRoomWithPasscode(undefined, rName, pCode, nick, googleIdentity?.identity_token);
     } catch (err: any) {
       setError(err.message || 'Lỗi tạo phòng');
     } finally {
@@ -83,10 +101,12 @@ export default function App() {
     setLoading(true);
     setError('');
     try {
-      const pCode = inputPasscode.trim() || '1234';
-      const nick = inputNickname.trim() || 'Khải';
+      const pCode = inputPasscode.trim();
+      if (!/^\d{4,6}$/.test(pCode)) throw new Error('Nhập mật khẩu phòng gồm 4 đến 6 chữ số.');
+      if (googleIdentity && Date.parse(googleIdentity.expires_at) <= Date.now()) throw new Error('Xác minh Google đã hết hạn. Hãy chọn lại tài khoản Google.');
+      const nick = inputNickname.trim() || 'Bạn cùng phòng';
 
-      await api.joinRoomWithPasscode(inputCode.trim(), pCode, nick);
+      await api.joinRoomWithPasscode(inputCode.trim(), pCode, nick, googleIdentity?.identity_token);
     } catch (err: any) {
       setError(err.message || 'Không thể tham gia phòng');
     } finally {
@@ -95,26 +115,18 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    authAttempt.current++; setGoogleIdentity(null); setGoogleAttempt(value => value + 1); signOutGoogle();
     sync.logout();
     setIsQuickAddOpen(false); setIsVoiceOpen(false); setIsRecipeOpen(false);
     setIsNotifOpen(false); setIsSettingsOpen(false); setVoiceDraftData(undefined);
     setInputPasscode(''); setError('');
   };
 
-  const handleGoogleSuccess = (profile: GoogleUserProfile) => {
-    setCurrentNickname(profile.name);
-    setInputNickname(profile.name);
-    setUserAvatar(profile.picture);
-    setGoogleEmail(profile.email);
-    const cache = api.sessionCache.get();
-    if (cache) {
-      api.sessionCache.save({
-        ...cache,
-        nickname: profile.name,
-        google_email: profile.email,
-        user_avatar: profile.picture
-      });
-    }
+  const googleGeneration = authAttempt.current;
+  const handleGoogleSuccess = (identity: GoogleIdentity) => {
+    if (authAttempt.current !== googleGeneration || api.sessionCache.get()) return;
+    setGoogleIdentity(identity);
+    setInputNickname(identity.profile.name);
   };
 
   const handleUpdateNickname = (newNick: string) => {
@@ -221,7 +233,7 @@ export default function App() {
             <div className="flex flex-col items-center gap-2.5">
               <div className="relative">
                 <img
-                  src={userAvatar || '/logo.jpg'}
+                  src={googleIdentity?.profile.picture || '/logo.jpg'}
                   alt="ShareFridge Logo"
                   className="w-20 h-20 rounded-3xl object-cover ring-4 ring-fresh-400/50 shadow-xl"
                 />
@@ -235,11 +247,12 @@ export default function App() {
 
             {/* Google Sign-In One-Click */}
             <div className="space-y-3">
-              <GoogleAuthButton onSuccess={handleGoogleSuccess} />
+              <GoogleAuthButton key={`${googleAttempt}-${isCreateMode}`} onSuccess={handleGoogleSuccess} />
+              {googleIdentity && <div className="text-xs text-slate-700"><p>{googleIdentity.profile.name} · {googleIdentity.profile.email}</p><button type="button" onClick={() => { authAttempt.current++; setGoogleIdentity(null); setGoogleAttempt(value => value + 1); setInputNickname(''); }} className="min-h-11 px-3 text-emerald-700">Bỏ tài khoản Google</button></div>}
               
               <div className="flex items-center gap-3">
                 <div className="flex-1 h-px bg-slate-200"></div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">hoặc mã PIN</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">thông tin phòng</span>
                 <div className="flex-1 h-px bg-slate-200"></div>
               </div>
             </div>
@@ -335,7 +348,7 @@ export default function App() {
 
             <button
               type="button"
-              onClick={() => { setIsCreateMode(!isCreateMode); setError(''); }}
+              onClick={() => { authAttempt.current++; setGoogleIdentity(null); setIsCreateMode(!isCreateMode); setError(''); }}
               className="w-full py-2 text-slate-600 hover:text-slate-900 font-bold text-xs flex items-center justify-center gap-1 transition-colors"
             >
               <span>{isCreateMode ? 'Đã có mã? Vào phòng' : 'Tạo phòng mới cho 2 người'}</span>
@@ -520,6 +533,7 @@ export default function App() {
           passcode={currentPasscode}
           nickname={currentNickname}
           googleEmail={googleEmail}
+          userAvatar={userAvatar}
           onUpdateNickname={handleUpdateNickname}
           onLogout={handleLogout}
         />
