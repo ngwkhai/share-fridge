@@ -1,76 +1,81 @@
-import crypto from 'crypto';
+import crypto from 'node:crypto';
+import { HttpError } from './http.js';
 
-const SECRET_KEY = process.env.SESSION_SECRET || 'sharefridge-secure-salt-key-2026';
+const developmentSecret = crypto.randomBytes(32).toString('hex');
+const SESSION_LIFETIME = 30 * 24 * 60 * 60 * 1000;
 
-// Rate Limiter: Map<ip, { count: number, resetAt: number, lockedUntil: number }>
-const rateLimitMap = new Map();
+function sessionSecret() {
+  const configured = process.env.SESSION_SECRET;
+  if (configured && Buffer.byteLength(configured) >= 32 && new Set(configured).size >= 16 && configured !== 'sharefridge-secure-salt-key-2026') return configured;
+  if (process.env.NODE_ENV === 'production' || configured) {
+    throw new HttpError(503, 'SESSION_UNAVAILABLE', 'Session service is not configured.');
+  }
+  // Local instances intentionally invalidate sessions on restart. Production
+  // always requires an explicit, independently generated shared secret.
+  return developmentSecret;
+}
 
 export function hashPasscode(passcode, salt = crypto.randomBytes(16).toString('hex')) {
-  const hash = crypto.pbkdf2Sync(passcode, salt, 1000, 32, 'sha256').toString('hex');
+  const hash = `scrypt$${crypto.scryptSync(passcode, salt, 32).toString('hex')}`;
   return { hash, salt };
 }
 
 export function verifyPasscode(passcode, savedHash, salt) {
-  if (!passcode || !savedHash || !salt) return false;
-  const { hash } = hashPasscode(passcode, salt);
-  return crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(savedHash));
+  if (typeof passcode !== 'string' || !passcode || typeof savedHash !== 'string' || typeof salt !== 'string' || !salt) return false;
+  const modern = savedHash.startsWith('scrypt$');
+  const expected = modern ? savedHash.slice(7) : savedHash;
+  if (!/^[a-f0-9]{64}$/.test(expected)) return false;
+  // Keep legacy records readable; new records use scrypt. No database reset or
+  // password replacement is needed to deploy the authorization correction.
+  const actual = modern ? crypto.scryptSync(passcode, salt, 32) : crypto.pbkdf2Sync(passcode, salt, 1000, 32, 'sha256');
+  return crypto.timingSafeEqual(actual, Buffer.from(expected, 'hex'));
 }
 
 export function generateSessionToken(roomCode, nickname = 'Bạn cùng phòng') {
-  const payload = {
-    room_code: roomCode,
-    nickname,
-    exp: Date.now() + 30 * 24 * 60 * 60 * 1000 // 30 days
-  };
+  const payload = { room_code: roomCode, nickname, exp: Date.now() + SESSION_LIFETIME };
   const payloadStr = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const signature = crypto.createHmac('sha256', SECRET_KEY).update(payloadStr).digest('base64url');
+  const signature = crypto.createHmac('sha256', sessionSecret()).update(payloadStr).digest('base64url');
   return `${payloadStr}.${signature}`;
 }
 
 export function verifySessionToken(token) {
-  if (!token || typeof token !== 'string') return null;
+  if (typeof token !== 'string' || token.length > 4096) return null;
   const parts = token.split('.');
-  if (parts.length !== 2) return null;
+  if (parts.length !== 2 || !parts.every(part => /^[A-Za-z0-9_-]+$/.test(part))) return null;
   const [payloadStr, signature] = parts;
-  const expectedSig = crypto.createHmac('sha256', SECRET_KEY).update(payloadStr).digest('base64url');
-  if (signature !== expectedSig) return null;
-
+  const expected = crypto.createHmac('sha256', sessionSecret()).update(payloadStr).digest();
+  const actual = Buffer.from(signature, 'base64url');
+  if (actual.length !== expected.length || actual.toString('base64url') !== signature || !crypto.timingSafeEqual(actual, expected)) return null;
   try {
     const payload = JSON.parse(Buffer.from(payloadStr, 'base64url').toString());
-    if (payload.exp && payload.exp < Date.now()) return null; // Expired
-    return payload;
+    if (!payload || typeof payload !== 'object' || !/^\d{6}$/.test(payload.room_code) || typeof payload.room_code !== 'string') return null;
+    if (typeof payload.nickname !== 'string' || !payload.nickname.trim() || payload.nickname.length > 100) return null;
+    if (!Number.isSafeInteger(payload.exp) || payload.exp <= Date.now() || payload.exp > Date.now() + SESSION_LIFETIME) return null;
+    return { room_code: payload.room_code, nickname: payload.nickname, exp: payload.exp };
   } catch {
     return null;
   }
 }
 
-export function checkRateLimit(ip) {
+// This local limiter is replaced by shared state in C-019. Never trust an
+// arbitrary X-Forwarded-For header to identify a caller outside the hosted proxy.
+const rateLimitMap = new Map();
+export function checkRateLimit(key) {
   const now = Date.now();
-  const record = rateLimitMap.get(ip) || { count: 0, resetAt: now + 15 * 60 * 1000, lockedUntil: 0 };
-
-  if (record.lockedUntil > now) {
-    const remainingSec = Math.ceil((record.lockedUntil - now) / 1000);
-    return { allowed: false, error: `Quá nhiều lần thử sai. Vui lòng thử lại sau ${remainingSec} giây.`, status: 429 };
+  let record = rateLimitMap.get(key);
+  if (!record || now >= record.resetAt) {
+    record = { count: 0, resetAt: now + 15 * 60 * 1000, lockedUntil: 0 };
+    rateLimitMap.set(key, record);
   }
-
-  if (now > record.resetAt) {
-    record.count = 0;
-    record.resetAt = now + 15 * 60 * 1000;
-  }
-
+  if (record.lockedUntil > now) return { allowed: false, error: 'Quá nhiều lần thử. Vui lòng thử lại sau.', status: 429 };
   return { allowed: true, record };
 }
-
-export function recordFailedAttempt(ip) {
-  const now = Date.now();
-  const record = rateLimitMap.get(ip) || { count: 0, resetAt: now + 15 * 60 * 1000, lockedUntil: 0 };
+export function recordFailedAttempt(key, maximum = 5) {
+  const { record } = checkRateLimit(key);
+  if (!record) return;
   record.count += 1;
-  if (record.count >= 5) {
-    record.lockedUntil = now + 15 * 60 * 1000; // Lock for 15 mins
-  }
-  rateLimitMap.set(ip, record);
+  if (record.count >= maximum) record.lockedUntil = record.resetAt;
 }
-
-export function recordSuccessAttempt(ip) {
-  rateLimitMap.delete(ip);
+export function recordSuccessAttempt(key) {
+  rateLimitMap.delete(key);
 }

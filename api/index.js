@@ -1,3 +1,4 @@
+import { sendError } from '../server/http.js';
 import { handleApiRequest } from '../server/apiHandler.js';
 
 export default async function handler(req, res) {
@@ -5,11 +6,9 @@ export default async function handler(req, res) {
     const handled = await handleApiRequest(req, res);
     if (!handled) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Endpoint not found' }));
+      res.end(JSON.stringify({ error: 'Endpoint not found', code: 'NOT_FOUND' }));
     }
   } catch (err) {
-    console.error('Serverless execution error:', err);
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Internal server error', details: err.message }));
+    sendError(res, err);
   }
 }

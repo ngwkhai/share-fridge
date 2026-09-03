@@ -20,8 +20,6 @@ the next card touching that stack starts from the gotchas instead of rediscoveri
 
 ## Index
 
-*(empty — this project hasn't paid for its first stack lesson yet. Add a row here the
-first time a card harvests one, per `.claude/skills/playbook-harvest/SKILL.md`.)*
-
 | Playbook | When to use |
 |---|---|
+| [node-http-body.md](node-http-body.md) | Shared Node/serverless handlers, parsed request bodies and safe JSON errors |

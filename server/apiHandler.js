@@ -1,7 +1,9 @@
 import fs from 'fs';
+import crypto from 'node:crypto';
+import { HttpError, readJsonBody, sendError } from './http.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { hashPasscode, verifyPasscode, generateSessionToken, verifySessionToken, checkRateLimit, recordFailedAttempt, recordSuccessAttempt } from './security.js';
+import { hashPasscode, verifyPasscode, generateSessionToken, verifySessionToken, checkRateLimit, recordFailedAttempt } from './security.js';
 import { suggestRecipesWithGemini, parseVoiceWithGemini } from './geminiService.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -65,19 +67,69 @@ function calculateStatusAndDays(expiryDateStr) {
   return { days_remaining: days, status };
 }
 
+function publicRoom(room) {
+  return { id: room.id, code: room.code, name: room.name, created_at: room.created_at };
+}
+
+function roomCode(value) {
+  if (typeof value !== 'string' || !/^\d{6}$/.test(value)) throw new HttpError(400, 'INVALID_ROOM_CODE', 'Room code must contain six digits.');
+  return value;
+}
+
+function boundedText(value, fallback, label) {
+  const text = value === undefined ? fallback : value;
+  if (typeof text !== 'string' || !text.trim() || text.trim().length > 100) throw new HttpError(400, 'INVALID_INPUT', `${label} must contain 1 to 100 characters.`);
+  return text.trim();
+}
+
+function validatePasscode(value) {
+  if (typeof value !== 'string' || !/^\d{4,6}$/.test(value)) throw new HttpError(400, 'INVALID_PASSCODE', 'Passcode must contain four to six digits.');
+  return value;
+}
+
+function assertRoomAccess(code, session) {
+  roomCode(code);
+  if (code !== session.room_code) throw new HttpError(403, 'FORBIDDEN', 'Room access denied.');
+  return code;
+}
+
+function ownedItem(collection, id, session) {
+  const item = collection.get(id);
+  if (!item || item.room_code !== session.room_code) throw new HttpError(404, 'NOT_FOUND', 'Item not found.');
+  return item;
+}
+
 export async function handleApiRequest(req, res) {
-  const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  try {
+    return await dispatchApiRequest(req, res);
+  } catch (error) {
+    sendError(res, error);
+    return true;
+  }
+}
+
+async function dispatchApiRequest(req, res) {
+  const url = new URL(req.url, 'http://localhost');
   const pathname = url.pathname;
   const method = req.method;
-
-  // Parse Body Helper
-  const parseJsonBody = () => new Promise((resolve) => {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
-      try { resolve(body ? JSON.parse(body) : {}); } catch { resolve({}); }
+  let session;
+  // A single gate covers every current and future route in a room namespace.
+  const protectedPath = /^\/api\/(?:rooms\/|foods(?:\/|$)|shopping-items(?:\/|$)|ai(?:\/|$)|notifications(?:\/|$)|photos(?:\/|$)|realtime-token(?:\/|$))/.test(pathname);
+  if (protectedPath) {
+    const auth = req.headers.authorization;
+    const match = typeof auth === 'string' && auth.match(/^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/i);
+    session = match ? verifySessionToken(match[1]) : null;
+    if (!session || !db.rooms.has(session.room_code)) throw new HttpError(401, 'UNAUTHORIZED', 'A valid room session is required.');
+    for (const code of url.searchParams.getAll('room_code')) assertRoomAccess(code, session);
+  }
+  let bodyPromise;
+  const parseJsonBody = () => {
+    bodyPromise ??= readJsonBody(req).then(data => {
+      if (session && data.room_code !== undefined) assertRoomAccess(data.room_code, session);
+      return data;
     });
-  });
+    return bodyPromise;
+  };
 
   // 1. Healthz
   if (pathname === '/healthz' && method === 'GET') {
@@ -93,116 +145,91 @@ export async function handleApiRequest(req, res) {
     return true;
   }
 
-  // Auth: Create Room with Passcode
-  if (pathname === '/api/auth/create-room' && method === 'POST') {
+  // Both create routes use the same validation and duplicate protection.
+  if ((pathname === '/api/auth/create-room' || pathname === '/api/rooms') && method === 'POST') {
+    const ip = process.env.VERCEL === '1' ? String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown').split(',')[0].trim() : req.socket?.remoteAddress || 'unknown';
+    const key = `create:${ip}`;
+    if (!checkRateLimit(key).allowed) throw new HttpError(429, 'RATE_LIMITED', 'Too many room creation attempts.');
+    recordFailedAttempt(key, 30);
     const data = await parseJsonBody();
-    const code = (data.code || Math.floor(100000 + Math.random() * 900000).toString()).trim();
-    const name = (data.name || `Phòng ${code.slice(0, 3)}`).trim();
-    const passcode = (data.passcode || '1234').trim();
-    const nickname = (data.nickname || 'Bạn cùng phòng').trim();
-
+    const passcode = validatePasscode(data.passcode);
+    const nickname = boundedText(data.nickname, 'Bạn cùng phòng', 'Nickname');
+    let code;
+    if (data.code !== undefined) {
+      code = roomCode(data.code);
+      if (db.rooms.has(code)) throw new HttpError(409, 'ROOM_EXISTS', 'Room code already exists.');
+    } else {
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const candidate = crypto.randomInt(100000, 1000000).toString();
+        if (!db.rooms.has(candidate)) { code = candidate; break; }
+      }
+      if (!code) throw new HttpError(503, 'ROOM_CODE_UNAVAILABLE', 'Could not allocate a room code.');
+    }
+    const name = boundedText(data.name, `Phòng ${code.slice(0, 3)}`, 'Room name');
+    // Validate session configuration before mutating room state.
+    const token = generateSessionToken(code, nickname);
     const { hash, salt } = hashPasscode(passcode);
     const room = { id: `room-${code}`, code, name, passcode_hash: hash, salt, created_at: new Date().toISOString() };
     db.rooms.set(code, room);
-
-    const token = generateSessionToken(code, nickname);
     res.writeHead(201, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
-      room: { id: room.id, code: room.code, name: room.name, created_at: room.created_at },
-      token,
-      nickname
-    }));
+    res.end(JSON.stringify(pathname === '/api/rooms' ? publicRoom(room) : { room: publicRoom(room), token, nickname }));
     return true;
   }
 
-  // Auth: Join Room with Passcode + Rate Limit
   if (pathname === '/api/auth/join-room' && method === 'POST') {
-    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
-    const rateCheck = checkRateLimit(ip);
-    if (!rateCheck.allowed) {
-      res.writeHead(429, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: rateCheck.error }));
-      return true;
-    }
-
+    const ip = process.env.VERCEL === '1' ? String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown').split(',')[0].trim() : req.socket?.remoteAddress || 'unknown';
     const data = await parseJsonBody();
-    const code = (data.code || '').trim();
-    const passcode = (data.passcode || '').trim();
-    const nickname = (data.nickname || 'Bạn cùng phòng').trim();
-
+    const code = roomCode(data.code);
+    const passcode = validatePasscode(data.passcode);
+    const nickname = boundedText(data.nickname, 'Bạn cùng phòng', 'Nickname');
+    // A success in another room cannot clear guesses against the target room.
+    const keys = [`join-ip:${ip}`, `join-room:${code}`];
+    if (keys.some(key => !checkRateLimit(key).allowed)) throw new HttpError(429, 'RATE_LIMITED', 'Too many sign-in attempts.');
     const room = db.rooms.get(code);
-    if (!room) {
-      recordFailedAttempt(ip);
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Mã phòng không tồn tại.' }));
-      return true;
+    if (!room || !verifyPasscode(passcode, room.passcode_hash, room.salt)) {
+      for (const key of keys) recordFailedAttempt(key);
+      throw new HttpError(401, 'INVALID_CREDENTIALS', 'Room code or passcode is incorrect.');
     }
-
-    // Verify passcode if room has one
-    if (room.passcode_hash && !verifyPasscode(passcode, room.passcode_hash, room.salt)) {
-      recordFailedAttempt(ip);
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Mật khẩu phòng không chính xác.' }));
-      return true;
-    }
-
-    recordSuccessAttempt(ip);
+    // Successful sign-ins do not clear accumulated failed attempts in the window.
     const token = generateSessionToken(code, nickname);
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
-      room: { id: room.id, code: room.code, name: room.name, created_at: room.created_at },
-      token,
-      nickname
-    }));
+    res.end(JSON.stringify({ room: publicRoom(room), token, nickname }));
     return true;
   }
 
-  // Auth: Verify Session Token
   if (pathname === '/api/auth/verify-token' && method === 'POST') {
     const data = await parseJsonBody();
     const payload = verifySessionToken(data.token);
-    if (!payload) {
+    const room = payload && db.rooms.get(payload.room_code);
+    if (!payload || !room) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ valid: false, error: 'Token không hợp lệ hoặc đã hết hạn.' }));
+      res.end(JSON.stringify({ valid: false, error: 'Token không hợp lệ hoặc đã hết hạn.', code: 'UNAUTHORIZED' }));
       return true;
     }
-    const room = db.rooms.get(payload.room_code);
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ valid: true, payload, room }));
-    return true;
-  }
-
-  // 3. Rooms
-  if (pathname === '/api/rooms' && method === 'POST') {
-    const data = await parseJsonBody();
-    const code = data.code || Math.floor(100000 + Math.random() * 900000).toString();
-    const name = data.name || `Phòng ${code.slice(0, 3)}`;
-    const room = { id: `room-${code}`, code, name, created_at: new Date().toISOString() };
-    db.rooms.set(code, room);
-    res.writeHead(201, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(room));
+    res.end(JSON.stringify({ valid: true, payload, room: publicRoom(room) }));
     return true;
   }
 
   const roomMatch = pathname.match(/^\/api\/rooms\/([a-zA-Z0-9_-]+)$/);
   if (roomMatch && method === 'GET') {
-    const code = roomMatch[1];
+    const code = assertRoomAccess(roomMatch[1], session);
     const room = db.rooms.get(code);
     if (!room) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Room not found' }));
+      res.end(JSON.stringify({ error: 'Room not found', code: 'NOT_FOUND' }));
       return true;
     }
     const foods = Array.from(db.foods.values()).filter(f => f.room_code === code && f.status !== 'CONSUMED');
     const urgentCount = foods.filter(f => f.status === 'COOK_SOON' || f.status === 'EXPIRED').length;
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ...room, active_food_count: foods.length, urgent_food_count: urgentCount }));
+    res.end(JSON.stringify({ ...publicRoom(room), active_food_count: foods.length, urgent_food_count: urgentCount }));
     return true;
   }
 
   // 4. Foods
   if (pathname === '/api/foods' && method === 'GET') {
-    const room_code = url.searchParams.get('room_code') || '123456';
+    const room_code = assertRoomAccess(url.searchParams.get('room_code'), session);
     const statusFilter = url.searchParams.get('status');
     let items = Array.from(db.foods.values()).filter(f => f.room_code === room_code);
     
@@ -234,7 +261,7 @@ export async function handleApiRequest(req, res) {
 
     const food = {
       id,
-      room_code: data.room_code || '123456',
+      room_code: assertRoomAccess(data.room_code, session),
       name: data.name,
       quantity: data.quantity || '1 phần',
       compartment: data.compartment || 'FRIDGE_TOP',
@@ -245,7 +272,7 @@ export async function handleApiRequest(req, res) {
       status,
       photo_url: data.photo_url || null,
       notes: data.notes || null,
-      created_by: data.created_by || 'Bạn cùng phòng'
+      created_by: session.nickname
     };
 
     db.foods.set(id, food);
@@ -258,13 +285,10 @@ export async function handleApiRequest(req, res) {
   if (foodConsumeMatch && method === 'PATCH') {
     const id = foodConsumeMatch[1];
     const data = await parseJsonBody();
-    const food = db.foods.get(id);
-    if (!food) {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Food item not found' }));
-      return true;
-    }
+    const food = ownedItem(db.foods, id, session);
     food.status = 'CONSUMED';
+    food.consumed_by = session.nickname;
+    food.consumed_at = new Date().toISOString();
     db.foods.set(id, food);
 
     if (data.add_to_shopping_list) {
@@ -287,6 +311,7 @@ export async function handleApiRequest(req, res) {
   const foodDeleteMatch = pathname.match(/^\/api\/foods\/([a-zA-Z0-9_-]+)$/);
   if (foodDeleteMatch && method === 'DELETE') {
     const id = foodDeleteMatch[1];
+    ownedItem(db.foods, id, session);
     db.foods.delete(id);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true, deleted_id: id }));
@@ -307,7 +332,8 @@ export async function handleApiRequest(req, res) {
   if (pathname === '/api/ai/suggest-recipes' && method === 'POST') {
     const customApiKey = req.headers['x-gemini-key'] || '';
     const { room_code, preference } = await parseJsonBody();
-    const availableFoods = Array.from(db.foods.values()).filter(f => f.room_code === (room_code || '123456') && f.status !== 'CONSUMED');
+    assertRoomAccess(room_code, session);
+    const availableFoods = Array.from(db.foods.values()).filter(f => f.room_code === session.room_code && f.status !== 'CONSUMED');
     
     // Recalculate days remaining before passing to AI prompt
     const enrichedFoods = availableFoods.map(f => {
@@ -326,7 +352,7 @@ export async function handleApiRequest(req, res) {
 
   // 7. Shopping items
   if (pathname === '/api/shopping-items' && method === 'GET') {
-    const room_code = url.searchParams.get('room_code') || '123456';
+    const room_code = assertRoomAccess(url.searchParams.get('room_code'), session);
     const items = Array.from(db.shoppingItems.values()).filter(i => i.room_code === room_code);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ items }));
@@ -338,7 +364,7 @@ export async function handleApiRequest(req, res) {
     const id = `shop-${Date.now()}`;
     const item = {
       id,
-      room_code: data.room_code || '123456',
+      room_code: assertRoomAccess(data.room_code, session),
       name: data.name,
       quantity: data.quantity || '',
       is_bought: false,
@@ -354,12 +380,7 @@ export async function handleApiRequest(req, res) {
   if (shopToggleMatch && method === 'PATCH') {
     const id = shopToggleMatch[1];
     const data = await parseJsonBody();
-    const item = db.shoppingItems.get(id);
-    if (!item) {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Item not found' }));
-      return true;
-    }
+    const item = ownedItem(db.shoppingItems, id, session);
     item.is_bought = data.is_bought;
     db.shoppingItems.set(id, item);
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -370,6 +391,7 @@ export async function handleApiRequest(req, res) {
   const shopDeleteMatch = pathname.match(/^\/api\/shopping-items\/([a-zA-Z0-9_-]+)$/);
   if (shopDeleteMatch && method === 'DELETE') {
     const id = shopDeleteMatch[1];
+    ownedItem(db.shoppingItems, id, session);
     db.shoppingItems.delete(id);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true }));
@@ -379,7 +401,8 @@ export async function handleApiRequest(req, res) {
   // 8. Notifications Subscribe
   if (pathname === '/api/notifications/subscribe' && method === 'POST') {
     const data = await parseJsonBody();
-    const subscriber_id = `sub-${Date.now()}`;
+    assertRoomAccess(data.room_code, session);
+    const subscriber_id = `sub-${crypto.randomUUID()}`;
     db.subscribers.set(subscriber_id, data);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true, subscriber_id }));

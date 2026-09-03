@@ -6,6 +6,7 @@ import { suggestRecipesWithGemini, parseVoiceWithGemini } from '../server/gemini
 
 let server;
 let baseUrl;
+let token;
 
 test.before(async () => {
   server = http.createServer(async (req, res) => {
@@ -22,6 +23,9 @@ test.before(async () => {
       resolve();
     });
   });
+  const joinRes = await fetch(`${baseUrl}/api/auth/join-room`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: '123456', passcode: '1234' }) });
+  assert.strictEqual(joinRes.status, 200);
+  token = (await joinRes.json()).token;
 });
 
 test.after(() => {
@@ -56,7 +60,7 @@ test('Gemini Service: parseVoice parses Vietnamese complex sentence', async () =
 test('API Endpoints: /api/ai/suggest-recipes and /api/ai/parse-voice respond via HTTP', async () => {
   const parseRes = await fetch(`${baseUrl}/api/ai/parse-voice`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ transcript: 'Trứng gà 10 quả để cánh tủ' })
   });
   assert.strictEqual(parseRes.status, 200);
@@ -65,7 +69,7 @@ test('API Endpoints: /api/ai/suggest-recipes and /api/ai/parse-voice respond via
 
   const recipeRes = await fetch(`${baseUrl}/api/ai/suggest-recipes`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ room_code: '123456' })
   });
   assert.strictEqual(recipeRes.status, 200);

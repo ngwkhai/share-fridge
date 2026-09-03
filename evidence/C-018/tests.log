@@ -1,0 +1,44 @@
+
+> share-fridge@1.0.0 test
+> node --test tests/*.test.js
+
+✔ GET /healthz returns ok and 200 (22.296333ms)
+✔ GET /api/openapi.json returns valid spec (3.810041ms)
+✔ POST /api/rooms and GET /api/rooms/:code works (98.103583ms)
+✔ Food CRUD and status calculation works (15.173709ms)
+✔ AI parse-voice endpoint returns structured JSON (2.685333ms)
+✔ Security Utils: Hashing and Verification works (154.088708ms)
+✔ Security Utils: Session Token Generation and Verification works (0.545792ms)
+✔ API Auth: Create Room with Passcode and Join with Passcode (119.026292ms)
+✔ API Auth: Verify Token endpoint (1.820709ms)
+✔ E2E Full Roommate Flow: Room Creation -> Voice Add -> Expiry Warning -> AI Recipe Cook -> Shopping List (100.4345ms)
+✔ Gemini Service: suggestRecipes returns valid structured recipes (82.331917ms)
+✔ Gemini Service: parseVoice parses Vietnamese complex sentence (0.342292ms)
+✔ API Endpoints: /api/ai/suggest-recipes and /api/ai/parse-voice respond via HTTP (10.519583ms)
+✔ Google Auth & Profile Session: Validates profile fields and structure (0.727166ms)
+✔ every data route rejects missing and malformed Bearer sessions (161.707791ms)
+✔ a second room cannot read, mutate, consume, delete or subscribe in the first room (6.044542ms)
+✔ duplicate room creation through either endpoint preserves credentials and records (68.7065ms)
+✔ room responses whitelist public fields including verify-token and legacy creation (37.527084ms)
+✔ room code, mandatory PIN and nickname types/bounds are validated on both create routes (6.204916ms)
+✔ unknown-room and tampered tokens cannot authorize requests (1.71625ms)
+✔ a valid signature never substitutes for required well-typed unexpired session claims (0.348791ms)
+✔ production rejects absent/default/weak session secrets before inserting a room (3.042ms)
+✔ malformed JSON is 400 and parsed serverless bodies complete without stream listeners (93.314708ms)
+✔ actor fields are derived from the session (0.719209ms)
+✔ legacy password hashes remain readable and malformed hashes fail without throwing (92.439667ms)
+✔ failures never expose internal exception details (1.126084ms)
+✔ failed PIN attempts are throttled even when the caller spoofs X-Forwarded-For (159.037583ms)
+✔ served OpenAPI declares auth routes, protected operations and safe error/room schemas (0.932333ms)
+✔ Session Cache & Room Auto-Creation: API creates room with passcode and verifies token (114.398834ms)
+✔ Supabase Schema SQL: File exists and contains complete PostgreSQL schema (0.95ms)
+✔ Vercel Config: vercel.json is valid and contains required rewrites & PWA headers (4.003375ms)
+✔ Vercel Serverless Function: api/index.js handles healthz and auth requests (0.576541ms)
+ℹ tests 32
+ℹ suites 0
+ℹ pass 32
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 777.909459

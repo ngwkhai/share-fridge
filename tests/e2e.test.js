@@ -29,20 +29,20 @@ test.after(() => {
 
 test('E2E Full Roommate Flow: Room Creation -> Voice Add -> Expiry Warning -> AI Recipe Cook -> Shopping List', async () => {
   // Step 1: Create a room for 2 roommates
-  const roomRes = await fetch(`${baseUrl}/api/rooms`, {
+  const roomRes = await fetch(`${baseUrl}/api/auth/create-room`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: 'Phòng 402 Triều Khúc' })
+    body: JSON.stringify({ name: 'Phòng 402 Triều Khúc', passcode: '6789' })
   });
   assert.strictEqual(roomRes.status, 201);
-  const room = await roomRes.json();
+  const { room, token } = await roomRes.json();
   const roomCode = room.code;
   assert.ok(roomCode);
 
   // Step 2: Roommate A adds an urgent item via Voice NLP
   const voiceRes = await fetch(`${baseUrl}/api/ai/parse-voice`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ transcript: 'Rau cải ngồng 1 mớ để hộc rau' })
   });
   assert.strictEqual(voiceRes.status, 200);
@@ -52,7 +52,7 @@ test('E2E Full Roommate Flow: Room Creation -> Voice Add -> Expiry Warning -> AI
   // Save the parsed item into the fridge with 1 day expiry (Urgent)
   const addVegRes = await fetch(`${baseUrl}/api/foods`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({
       room_code: roomCode,
       name: parsed.name,
@@ -69,7 +69,7 @@ test('E2E Full Roommate Flow: Room Creation -> Voice Add -> Expiry Warning -> AI
   // Step 3: Roommate A adds fresh meat in freezer
   const addMeatRes = await fetch(`${baseUrl}/api/foods`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({
       room_code: roomCode,
       name: 'Thịt bò phi lê',
@@ -82,7 +82,7 @@ test('E2E Full Roommate Flow: Room Creation -> Voice Add -> Expiry Warning -> AI
   assert.strictEqual(addMeatRes.status, 201);
 
   // Step 4: Roommate B opens app and checks fridge overview
-  const roomOverviewRes = await fetch(`${baseUrl}/api/rooms/${roomCode}`);
+  const roomOverviewRes = await fetch(`${baseUrl}/api/rooms/${roomCode}`, { headers: { Authorization: `Bearer ${token}` } });
   const roomDetail = await roomOverviewRes.json();
   assert.strictEqual(roomDetail.active_food_count, 2);
   assert.strictEqual(roomDetail.urgent_food_count, 1);
@@ -90,7 +90,7 @@ test('E2E Full Roommate Flow: Room Creation -> Voice Add -> Expiry Warning -> AI
   // Step 5: Roommate B asks "Hôm nay ăn gì?" AI suggests recipe from available items
   const recipeRes = await fetch(`${baseUrl}/api/ai/suggest-recipes`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ room_code: roomCode })
   });
   assert.strictEqual(recipeRes.status, 200);
@@ -101,7 +101,7 @@ test('E2E Full Roommate Flow: Room Creation -> Voice Add -> Expiry Warning -> AI
   // Step 6: Roommate B cooks the meal and marks the urgent vegetable as consumed + adds to shopping list
   const consumeRes = await fetch(`${baseUrl}/api/foods/${vegFood.id}/consume`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ add_to_shopping_list: true })
   });
   assert.strictEqual(consumeRes.status, 200);
@@ -109,7 +109,7 @@ test('E2E Full Roommate Flow: Room Creation -> Voice Add -> Expiry Warning -> AI
   assert.strictEqual(consumedItem.status, 'CONSUMED');
 
   // Step 7: Check Shopping List auto-updated
-  const shopRes = await fetch(`${baseUrl}/api/shopping-items?room_code=${roomCode}`);
+  const shopRes = await fetch(`${baseUrl}/api/shopping-items?room_code=${roomCode}`, { headers: { Authorization: `Bearer ${token}` } });
   const { items: shopItems } = await shopRes.json();
   assert.strictEqual(shopItems.length, 1);
   assert.strictEqual(shopItems[0].name, vegFood.name);
@@ -117,7 +117,7 @@ test('E2E Full Roommate Flow: Room Creation -> Voice Add -> Expiry Warning -> AI
   // Step 8: Roommate goes shopping and checks off the item
   const toggleRes = await fetch(`${baseUrl}/api/shopping-items/${shopItems[0].id}/toggle`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ is_bought: true })
   });
   assert.strictEqual(toggleRes.status, 200);

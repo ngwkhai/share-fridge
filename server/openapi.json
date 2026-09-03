@@ -17,11 +17,23 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "status": { "type": "string", "example": "ok" },
-                    "version": { "type": "string", "example": "1.0.0" },
-                    "timestamp": { "type": "string" }
+                    "status": {
+                      "type": "string",
+                      "example": "ok"
+                    },
+                    "version": {
+                      "type": "string",
+                      "example": "1.0.0"
+                    },
+                    "timestamp": {
+                      "type": "string"
+                    }
                   },
-                  "required": ["status", "version", "timestamp"]
+                  "required": [
+                    "status",
+                    "version",
+                    "timestamp"
+                  ]
                 }
               }
             }
@@ -31,26 +43,76 @@
     },
     "/api/rooms": {
       "post": {
-        "summary": "Create a new room",
+        "summary": "Legacy room creation alias; PIN required and existing room never overwritten",
+        "security": [],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "code": { "type": "string", "example": "839201" },
-                  "name": { "type": "string", "example": "Phòng 302" }
-                }
+                "$ref": "#/components/schemas/RoomCreate"
               }
             }
           }
         },
         "responses": {
           "201": {
-            "description": "Room created",
+            "description": "Success",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/Room" }
+                "schema": {
+                  "$ref": "#/components/schemas/Room"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials or session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Room code already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
               }
             }
           }
@@ -61,27 +123,107 @@
       "get": {
         "summary": "Get room details by 6-digit PIN",
         "parameters": [
-          { "name": "code", "in": "path", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
             "description": "Room details",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/RoomDetail" }
+                "schema": {
+                  "$ref": "#/components/schemas/RoomDetail"
+                }
               }
             }
           },
-          "404": { "description": "Room not found" }
-        }
+          "404": {
+            "description": "Resource absent or belongs to another room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON or input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed or expired session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Session belongs to a different room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error; no sensitive details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "RoomBearer": []
+          }
+        ]
       }
     },
     "/api/foods": {
       "get": {
         "summary": "Get food items in room fridge",
         "parameters": [
-          { "name": "room_code", "in": "query", "required": true, "schema": { "type": "string" } },
-          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["active", "consumed"] } }
+          {
+            "name": "room_code",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "consumed"
+              ]
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -90,14 +232,77 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/FoodItem" } },
-                    "total": { "type": "integer" }
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/FoodItem"
+                      }
+                    },
+                    "total": {
+                      "type": "integer"
+                    }
                   }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid JSON or input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed or expired session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Session belongs to a different room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource absent or belongs to another room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error; no sensitive details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "RoomBearer": []
+          }
+        ]
       },
       "post": {
         "summary": "Add a new food item",
@@ -105,7 +310,9 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/CreateFoodDto" }
+              "schema": {
+                "$ref": "#/components/schemas/CreateFoodDto"
+              }
             }
           }
         },
@@ -113,18 +320,83 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/FoodItem" }
+                "schema": {
+                  "$ref": "#/components/schemas/FoodItem"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid JSON or input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed or expired session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Session belongs to a different room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource absent or belongs to another room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error; no sensitive details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "RoomBearer": []
+          }
+        ]
       }
     },
     "/api/foods/{id}/consume": {
       "patch": {
         "summary": "Mark food item as consumed",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "content": {
@@ -132,8 +404,12 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "consumed_by": { "type": "string" },
-                  "add_to_shopping_list": { "type": "boolean" }
+                  "consumed_by": {
+                    "type": "string"
+                  },
+                  "add_to_shopping_list": {
+                    "type": "boolean"
+                  }
                 }
               }
             }
@@ -143,18 +419,83 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/FoodItem" }
+                "schema": {
+                  "$ref": "#/components/schemas/FoodItem"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid JSON or input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed or expired session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Session belongs to a different room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource absent or belongs to another room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error; no sensitive details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "RoomBearer": []
+          }
+        ]
       }
     },
     "/api/foods/{id}": {
       "delete": {
         "summary": "Delete food item",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -163,14 +504,74 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" },
-                    "deleted_id": { "type": "string" }
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "deleted_id": {
+                      "type": "string"
+                    }
                   }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid JSON or input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed or expired session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Session belongs to a different room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource absent or belongs to another room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error; no sensitive details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "RoomBearer": []
+          }
+        ]
       }
     },
     "/api/ai/parse-voice": {
@@ -183,9 +584,13 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "transcript": { "type": "string" }
+                  "transcript": {
+                    "type": "string"
+                  }
                 },
-                "required": ["transcript"]
+                "required": [
+                  "transcript"
+                ]
               }
             }
           }
@@ -197,14 +602,74 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "parsed": { "$ref": "#/components/schemas/ParsedFoodItem" },
-                    "confidence": { "type": "number" }
+                    "parsed": {
+                      "$ref": "#/components/schemas/ParsedFoodItem"
+                    },
+                    "confidence": {
+                      "type": "number"
+                    }
                   }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid JSON or input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed or expired session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Session belongs to a different room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource absent or belongs to another room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error; no sensitive details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "RoomBearer": []
+          }
+        ]
       }
     },
     "/api/ai/suggest-recipes": {
@@ -217,10 +682,16 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "room_code": { "type": "string" },
-                  "preference": { "type": "string" }
+                  "room_code": {
+                    "type": "string"
+                  },
+                  "preference": {
+                    "type": "string"
+                  }
                 },
-                "required": ["room_code"]
+                "required": [
+                  "room_code"
+                ]
               }
             }
           }
@@ -232,21 +703,91 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "suggestions": { "type": "array", "items": { "$ref": "#/components/schemas/RecipeSuggestion" } },
-                    "generated_at": { "type": "string" }
+                    "suggestions": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/RecipeSuggestion"
+                      }
+                    },
+                    "generated_at": {
+                      "type": "string"
+                    }
                   }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid JSON or input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed or expired session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Session belongs to a different room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource absent or belongs to another room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error; no sensitive details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "RoomBearer": []
+          }
+        ]
       }
     },
     "/api/shopping-items": {
       "get": {
         "summary": "List shopping items for room",
         "parameters": [
-          { "name": "room_code", "in": "query", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "room_code",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -255,13 +796,74 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/ShoppingItem" } }
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ShoppingItem"
+                      }
+                    }
                   }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid JSON or input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed or expired session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Session belongs to a different room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource absent or belongs to another room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error; no sensitive details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "RoomBearer": []
+          }
+        ]
       },
       "post": {
         "summary": "Add item to shopping list",
@@ -269,7 +871,9 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/CreateShoppingItemDto" }
+              "schema": {
+                "$ref": "#/components/schemas/CreateShoppingItemDto"
+              }
             }
           }
         },
@@ -277,18 +881,83 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ShoppingItem" }
+                "schema": {
+                  "$ref": "#/components/schemas/ShoppingItem"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid JSON or input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed or expired session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Session belongs to a different room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource absent or belongs to another room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error; no sensitive details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "RoomBearer": []
+          }
+        ]
       }
     },
     "/api/shopping-items/{id}/toggle": {
       "patch": {
         "summary": "Toggle bought status of shopping item",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "content": {
@@ -296,9 +965,15 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "is_bought": { "type": "boolean" },
-                  "move_to_fridge": { "type": "boolean" },
-                  "compartment": { "type": "string" }
+                  "is_bought": {
+                    "type": "boolean"
+                  },
+                  "move_to_fridge": {
+                    "type": "boolean"
+                  },
+                  "compartment": {
+                    "type": "string"
+                  }
                 }
               }
             }
@@ -308,18 +983,83 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ShoppingItem" }
+                "schema": {
+                  "$ref": "#/components/schemas/ShoppingItem"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid JSON or input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed or expired session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Session belongs to a different room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource absent or belongs to another room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error; no sensitive details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "RoomBearer": []
+          }
+        ]
       }
     },
     "/api/shopping-items/{id}": {
       "delete": {
         "summary": "Delete shopping item",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -328,13 +1068,71 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" }
+                    "success": {
+                      "type": "boolean"
+                    }
                   }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid JSON or input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed or expired session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Session belongs to a different room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource absent or belongs to another room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error; no sensitive details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "RoomBearer": []
+          }
+        ]
       }
     },
     "/api/notifications/subscribe": {
@@ -347,11 +1145,20 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "room_code": { "type": "string" },
-                  "subscription": { "type": "object" },
-                  "device_name": { "type": "string" }
+                  "room_code": {
+                    "type": "string"
+                  },
+                  "subscription": {
+                    "type": "object"
+                  },
+                  "device_name": {
+                    "type": "string"
+                  }
                 },
-                "required": ["room_code", "subscription"]
+                "required": [
+                  "room_code",
+                  "subscription"
+                ]
               }
             }
           }
@@ -363,9 +1170,328 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" },
-                    "subscriber_id": { "type": "string" }
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "subscriber_id": {
+                      "type": "string"
+                    }
                   }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid JSON or input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed or expired session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Session belongs to a different room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource absent or belongs to another room",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error; no sensitive details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "RoomBearer": []
+          }
+        ]
+      }
+    },
+    "/api/auth/create-room": {
+      "post": {
+        "summary": "Create a password-protected room and issue a session",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoomCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthSession"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials or session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Room code already exists; never overwritten",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/join-room": {
+      "post": {
+        "summary": "Join a room using its PIN",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoomJoin"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthSession"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials or session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/verify-token": {
+      "post": {
+        "summary": "Verify session and return only public room fields",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "token"
+                ],
+                "properties": {
+                  "token": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "valid",
+                    "payload",
+                    "room"
+                  ],
+                  "properties": {
+                    "valid": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "payload": {
+                      "$ref": "#/components/schemas/SessionPayload"
+                    },
+                    "room": {
+                      "$ref": "#/components/schemas/Room"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials or session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Error"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "valid"
+                      ],
+                      "properties": {
+                        "valid": {
+                          "type": "boolean",
+                          "enum": [
+                            false
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
@@ -379,21 +1505,40 @@
       "Room": {
         "type": "object",
         "properties": {
-          "id": { "type": "string" },
-          "code": { "type": "string" },
-          "name": { "type": "string" },
-          "created_at": { "type": "string" }
+          "id": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          }
         },
-        "required": ["id", "code", "name", "created_at"]
+        "required": [
+          "id",
+          "code",
+          "name",
+          "created_at"
+        ]
       },
       "RoomDetail": {
         "allOf": [
-          { "$ref": "#/components/schemas/Room" },
+          {
+            "$ref": "#/components/schemas/Room"
+          },
           {
             "type": "object",
             "properties": {
-              "active_food_count": { "type": "integer" },
-              "urgent_food_count": { "type": "integer" }
+              "active_food_count": {
+                "type": "integer"
+              },
+              "urgent_food_count": {
+                "type": "integer"
+              }
             }
           }
         ]
@@ -401,80 +1546,355 @@
       "FoodItem": {
         "type": "object",
         "properties": {
-          "id": { "type": "string" },
-          "room_code": { "type": "string" },
-          "name": { "type": "string" },
-          "quantity": { "type": "string" },
-          "compartment": { "type": "string", "enum": ["FREEZER", "FRIDGE_TOP", "FRIDGE_BOTTOM", "CRISPER", "DOOR"] },
-          "container_tag": { "type": "string" },
-          "added_date": { "type": "string" },
-          "expiry_date": { "type": "string" },
-          "days_remaining": { "type": "number" },
-          "status": { "type": "string", "enum": ["FRESH", "COOK_SOON", "EXPIRED", "CONSUMED"] },
-          "photo_url": { "type": "string", "nullable": true },
-          "notes": { "type": "string", "nullable": true },
-          "created_by": { "type": "string" }
+          "id": {
+            "type": "string"
+          },
+          "room_code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "string"
+          },
+          "compartment": {
+            "type": "string",
+            "enum": [
+              "FREEZER",
+              "FRIDGE_TOP",
+              "FRIDGE_BOTTOM",
+              "CRISPER",
+              "DOOR"
+            ]
+          },
+          "container_tag": {
+            "type": "string"
+          },
+          "added_date": {
+            "type": "string"
+          },
+          "expiry_date": {
+            "type": "string"
+          },
+          "days_remaining": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "FRESH",
+              "COOK_SOON",
+              "EXPIRED",
+              "CONSUMED"
+            ]
+          },
+          "photo_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_by": {
+            "type": "string",
+            "description": "Derived from the verified room session; client value ignored."
+          },
+          "consumed_by": {
+            "type": "string",
+            "nullable": true,
+            "description": "Derived from the verified room session."
+          },
+          "consumed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
         },
-        "required": ["id", "room_code", "name", "compartment", "added_date", "expiry_date", "days_remaining", "status"]
+        "required": [
+          "id",
+          "room_code",
+          "name",
+          "compartment",
+          "added_date",
+          "expiry_date",
+          "days_remaining",
+          "status"
+        ]
       },
       "CreateFoodDto": {
         "type": "object",
         "properties": {
-          "room_code": { "type": "string" },
-          "name": { "type": "string" },
-          "quantity": { "type": "string" },
-          "compartment": { "type": "string", "enum": ["FREEZER", "FRIDGE_TOP", "FRIDGE_BOTTOM", "CRISPER", "DOOR"] },
-          "container_tag": { "type": "string" },
-          "shelf_life_days": { "type": "number" },
-          "photo_url": { "type": "string", "nullable": true },
-          "notes": { "type": "string", "nullable": true },
-          "created_by": { "type": "string" }
+          "room_code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "string"
+          },
+          "compartment": {
+            "type": "string",
+            "enum": [
+              "FREEZER",
+              "FRIDGE_TOP",
+              "FRIDGE_BOTTOM",
+              "CRISPER",
+              "DOOR"
+            ]
+          },
+          "container_tag": {
+            "type": "string"
+          },
+          "shelf_life_days": {
+            "type": "number"
+          },
+          "photo_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_by": {
+            "type": "string"
+          }
         },
-        "required": ["room_code", "name", "compartment", "shelf_life_days"]
+        "required": [
+          "room_code",
+          "name",
+          "compartment",
+          "shelf_life_days"
+        ]
       },
       "ParsedFoodItem": {
         "type": "object",
         "properties": {
-          "name": { "type": "string" },
-          "quantity": { "type": "string" },
-          "compartment": { "type": "string" },
-          "container_tag": { "type": "string" },
-          "shelf_life_days": { "type": "number" }
+          "name": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "string"
+          },
+          "compartment": {
+            "type": "string"
+          },
+          "container_tag": {
+            "type": "string"
+          },
+          "shelf_life_days": {
+            "type": "number"
+          }
         },
-        "required": ["name", "compartment", "shelf_life_days"]
+        "required": [
+          "name",
+          "compartment",
+          "shelf_life_days"
+        ]
       },
       "RecipeSuggestion": {
         "type": "object",
         "properties": {
-          "id": { "type": "string" },
-          "title": { "type": "string" },
-          "cook_time_minutes": { "type": "integer" },
-          "ingredients_used": { "type": "array", "items": { "type": "string" } },
-          "ingredients_missing": { "type": "array", "items": { "type": "string" } },
-          "instructions": { "type": "array", "items": { "type": "string" } }
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "cook_time_minutes": {
+            "type": "integer"
+          },
+          "ingredients_used": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ingredients_missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "instructions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         },
-        "required": ["id", "title", "cook_time_minutes", "ingredients_used", "instructions"]
+        "required": [
+          "id",
+          "title",
+          "cook_time_minutes",
+          "ingredients_used",
+          "instructions"
+        ]
       },
       "ShoppingItem": {
         "type": "object",
         "properties": {
-          "id": { "type": "string" },
-          "room_code": { "type": "string" },
-          "name": { "type": "string" },
-          "quantity": { "type": "string" },
-          "is_bought": { "type": "boolean" },
-          "created_at": { "type": "string" }
+          "id": {
+            "type": "string"
+          },
+          "room_code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "string"
+          },
+          "is_bought": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string"
+          }
         },
-        "required": ["id", "room_code", "name", "is_bought", "created_at"]
+        "required": [
+          "id",
+          "room_code",
+          "name",
+          "is_bought",
+          "created_at"
+        ]
       },
       "CreateShoppingItemDto": {
         "type": "object",
         "properties": {
-          "room_code": { "type": "string" },
-          "name": { "type": "string" },
-          "quantity": { "type": "string" }
+          "room_code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "string"
+          }
         },
-        "required": ["room_code", "name"]
+        "required": [
+          "room_code",
+          "name"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "required": [
+          "error",
+          "code"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          }
+        }
+      },
+      "RoomCreate": {
+        "type": "object",
+        "required": [
+          "passcode"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[0-9]{6}$"
+          },
+          "passcode": {
+            "type": "string",
+            "pattern": "^[0-9]{4,6}$",
+            "writeOnly": true
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "nickname": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        }
+      },
+      "RoomJoin": {
+        "type": "object",
+        "required": [
+          "code",
+          "passcode"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[0-9]{6}$"
+          },
+          "passcode": {
+            "type": "string",
+            "pattern": "^[0-9]{4,6}$",
+            "writeOnly": true
+          },
+          "nickname": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        }
+      },
+      "SessionPayload": {
+        "type": "object",
+        "required": [
+          "room_code",
+          "nickname",
+          "exp"
+        ],
+        "properties": {
+          "room_code": {
+            "type": "string",
+            "pattern": "^[0-9]{6}$"
+          },
+          "nickname": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "exp": {
+            "type": "integer",
+            "description": "Expiry as Unix epoch milliseconds; mandatory and strictly in the future."
+          }
+        }
+      },
+      "AuthSession": {
+        "type": "object",
+        "required": [
+          "room",
+          "token",
+          "nickname"
+        ],
+        "properties": {
+          "room": {
+            "$ref": "#/components/schemas/Room"
+          },
+          "token": {
+            "type": "string"
+          },
+          "nickname": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "RoomBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Room session from create-room or join-room; signature, mandatory expiry and room existence checked on every protected request."
       }
     }
   }
