@@ -89,6 +89,8 @@ interface ShoppingItem {
 
 Bounds: room code exactly six digits; passcode four to six digits. Nonempty food/shopping name <=200 chars, room name/nickname <=100, quantity/tag <=200, notes/preference/transcript <=2000. shelf_life_days integer 0..365, where 0 expires now, never defaults to 3. Actor fields accepted for compatibility but ignored in favor of verified session.
 
+Batch consume accepts 1..50 unique food IDs and an idempotency key of 1..200 characters. Reject duplicate IDs or requests above the bound before locking/writing; replay requires the same canonical IDs and options.
+
 Google identity supplements PIN membership and cannot grant a room itself. Use GOOGLE_CLIENT_ID server configuration and verified identity tokens; only the public client ID is exposed. Session stores must retain verified profile on create/join and reload.
 
 ## Architecture and acceptance
