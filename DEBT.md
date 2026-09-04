@@ -43,3 +43,10 @@ exposure and a condition that must be true before the loan is closed. See
   investigated and reduced (connection pooling, function warm-up, or reducing
   the number of parallel calls `refresh()` makes), separately from the realtime
   transport question this line was originally about.
+
+  **Operator decision 2026-09-04:** the operator reviewed the measured result and
+  accepted the current latency for this release, stating that further measurement
+  has no practical value. This accepts the product exposure; it does **not** turn
+  the failed `<500ms` verification into passing evidence. C-021 remains `todo`
+  until the PRD/contract target is explicitly amended and the card's acceptance
+  criteria are reconciled, or the target is actually met.
