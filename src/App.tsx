@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from './services/api';
-import { CreateFoodDto, ParsedFoodItem, RecipeSuggestion, GoogleIdentity } from './types';
+import { CreateFoodDto, ParsedFoodItem, RecipeSuggestion, GoogleIdentity, UpdateFoodDto } from './types';
 import { Header } from './components/Header';
 import { PulseStrip } from './components/PulseStrip';
 import { FilterBar, FilterCategory } from './components/FilterBar';
@@ -16,7 +16,38 @@ import { GoogleAuthButton } from './components/GoogleAuthButton';
 import { signOutGoogle } from './services/googleIdentity';
 import { pushClient } from './services/pushClient';
 import { useRoomSync } from './hooks/useRoomSync';
+import { ConfirmDialog } from './components/ConfirmDialog';
 import { PlusCircle, Search, Lock, User, ArrowRight } from 'lucide-react';
+import type { FoodItem } from './types';
+
+// A consumed-history row keeps its own confirm/pending state so a failed delete
+// never silently removes it from the list before the server actually accepts it.
+function HistoryFoodRow({ food, onDelete }: { food: FoodItem; onDelete: (id: string) => Promise<void> }) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  return (
+    <div className="glass-card p-3 rounded-2xl flex items-center justify-between">
+      <div>
+        <div className="font-bold text-sm text-slate-800 line-through">{food.name}</div>
+        <div className="text-[11px] text-slate-400 font-medium">{food.compartment}</div>
+      </div>
+      <button
+        onClick={() => setConfirmOpen(true)}
+        aria-label={`Xóa ${food.name} khỏi lịch sử`}
+        className="min-h-11 px-2 text-xs text-slate-400 hover:text-danger-600 font-semibold"
+      >
+        Xóa
+      </button>
+      <ConfirmDialog
+        isOpen={confirmOpen}
+        title={`Xóa ${food.name}?`}
+        description="Món này sẽ bị xóa khỏi lịch sử. Không thể hoàn tác."
+        confirmLabel="Xóa món"
+        onCancel={() => setConfirmOpen(false)}
+        onConfirm={async () => { await onDelete(food.id); setConfirmOpen(false); }}
+      />
+    </div>
+  );
+}
 
 export default function App() {
   const sync = useRoomSync();
@@ -132,12 +163,12 @@ export default function App() {
     setInputNickname(identity.profile.name);
   };
 
-  const handleUpdateNickname = (newNick: string) => {
-    setCurrentNickname(newNick);
-    const cache = api.sessionCache.get();
-    if (cache) {
-      api.sessionCache.save({ ...cache, nickname: newNick });
-    }
+  // Renews the verified session server-side; local nickname state only reflects
+  // what the server accepted. On failure the caller (SettingsModal) keeps the
+  // edit form open with the user's typed value so nothing is silently lost.
+  const handleUpdateNickname = async (newNick: string) => {
+    const result = await api.updateNickname(newNick);
+    setCurrentNickname(result.nickname);
   };
 
   // Data changes are accepted only after server success and a guarded refresh.
@@ -155,6 +186,7 @@ export default function App() {
   };
   const handleConsumeFood = async (id: string) => { await runMutation(() => api.consumeFood(id, undefined, true)); };
   const handleDeleteFood = async (id: string) => { await runMutation(() => api.deleteFood(id)); };
+  const handleUpdateFood = async (id: string, dto: UpdateFoodDto) => { await runMutation(() => api.updateFood(id, dto)); };
 
   const handleVoiceParsed = (parsed: ParsedFoodItem) => {
     if (!initialCache || api.sessionCache.get()?.token !== initialCache.token) return;
@@ -431,8 +463,9 @@ export default function App() {
                       <FoodCard
                         key={food.id}
                         food={food}
-                        onConsume={id => { void handleConsumeFood(id).catch(() => {}); }}
-                        onDelete={id => { void handleDeleteFood(id).catch(() => {}); }}
+                        onConsume={handleConsumeFood}
+                        onDelete={handleDeleteFood}
+                        onEdit={handleUpdateFood}
                       />
                     ))
                   )}
@@ -461,18 +494,7 @@ export default function App() {
                 ) : (
                   <div className="space-y-2 opacity-80">
                     {consumedFoods.map((food) => (
-                      <div key={food.id} className="glass-card p-3 rounded-2xl flex items-center justify-between">
-                        <div>
-                          <div className="font-bold text-sm text-slate-800 line-through">{food.name}</div>
-                          <div className="text-[11px] text-slate-400 font-medium">{food.compartment}</div>
-                        </div>
-                        <button
-                          onClick={() => { void handleDeleteFood(food.id).catch(() => {}); }}
-                          className="text-xs text-slate-400 hover:text-danger-600 font-semibold"
-                        >
-                          Xóa
-                        </button>
-                      </div>
+                      <HistoryFoodRow key={food.id} food={food} onDelete={handleDeleteFood} />
                     ))}
                   </div>
                 )}

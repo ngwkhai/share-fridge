@@ -60,10 +60,12 @@ function verifiedPayload(token, purpose = '') {
   if (actual.length !== expected.length || actual.toString('base64url') !== signature || !crypto.timingSafeEqual(actual, expected)) return null;
   try { return JSON.parse(Buffer.from(encoded, 'base64url').toString()); } catch { return null; }
 }
-export function generateSessionToken(roomCode, nickname = 'Bạn cùng phòng', googleProfile) {
+// exp defaults to a fresh SESSION_LIFETIME window; C-026 nickname renewal passes the
+// original session's own exp through so the renewed token never extends the session.
+export function generateSessionToken(roomCode, nickname = 'Bạn cùng phòng', googleProfile, exp = Date.now() + SESSION_LIFETIME) {
   const profile = googleProfile === undefined ? undefined : validatedGoogleProfile(googleProfile);
   if (profile === null) throw new HttpError(401, 'INVALID_GOOGLE_IDENTITY', 'Google identity is invalid.');
-  return signPayload({ room_code: roomCode, nickname, exp: Date.now() + SESSION_LIFETIME, ...(profile ? { google_profile: profile } : {}) });
+  return signPayload({ room_code: roomCode, nickname, exp, ...(profile ? { google_profile: profile } : {}) });
 }
 export function verifySessionToken(token) {
   const payload = verifiedPayload(token);

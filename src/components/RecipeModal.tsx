@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
 import { RecipeSuggestion } from '../types';
 import { Sparkles, Utensils, Clock, X, RefreshCw, Check } from 'lucide-react';
+import { Dialog } from './Dialog';
 
 interface RecipeModalProps {
   isOpen: boolean;
@@ -61,8 +62,14 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({ isOpen, onClose, roomC
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div role="dialog" aria-modal="true" aria-labelledby="recipe-title" className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 shadow-xl space-y-4 max-h-[85vh] overflow-y-auto">
+    <Dialog
+      isOpen={isOpen}
+      onClose={onClose}
+      closeDisabled={!!cookingId}
+      labelledBy="recipe-title"
+      overlayClassName="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+      panelClassName="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 shadow-xl space-y-4 max-h-[85vh] overflow-y-auto"
+    >
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2.5">
             <div className="w-11 h-11 rounded-2xl bg-amber-500 text-white flex items-center justify-center"><Sparkles className="w-5 h-5" /></div>
@@ -90,7 +97,6 @@ export const RecipeModal: React.FC<RecipeModalProps> = ({ isOpen, onClose, roomC
             <button onClick={() => void fetchRecipes()} disabled={!!cookingId} className="w-full min-h-11 py-3 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 font-bold rounded-xl text-sm flex items-center justify-center gap-2"><RefreshCw className="w-4 h-4" />Lấy gợi ý mới</button>
           </div>
         )}
-      </div>
-    </div>
+    </Dialog>
   );
 };

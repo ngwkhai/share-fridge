@@ -1,19 +1,28 @@
-import React from 'react';
-import { FoodItem } from '../types';
-import { Utensils, Tag, Clock, Trash2, ImageOff } from 'lucide-react';
+import React, { useState } from 'react';
+import { FoodItem, UpdateFoodDto } from '../types';
+import { Utensils, Tag, Clock, Trash2, ImageOff, Pencil, Loader2 } from 'lucide-react';
+import { ConfirmDialog } from './ConfirmDialog';
+import { FoodEditModal } from './FoodEditModal';
 
 interface FoodCardProps {
   food: FoodItem;
-  onConsume: (id: string) => void;
-  onDelete: (id: string) => void;
+  onConsume: (id: string) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+  onEdit: (id: string, dto: UpdateFoodDto) => Promise<void>;
 }
 
-export const FoodCard: React.FC<FoodCardProps> = ({ food, onConsume, onDelete }) => {
+export const FoodCard: React.FC<FoodCardProps> = ({ food, onConsume, onDelete, onEdit }) => {
+  const [consuming, setConsuming] = useState(false);
+  const [consumeError, setConsumeError] = useState('');
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const busy = consuming || confirmDeleteOpen;
+
   const getStatusBadge = () => {
     if (food.status === 'EXPIRED' || food.days_remaining <= 0) {
       return {
         bg: 'bg-danger-500/10 border-danger-400/50 text-danger-700 glow-danger',
-        dot: 'bg-danger-500 animate-ping',
+        dot: 'bg-danger-500 motion-safe:animate-ping',
         text: 'Hết hạn'
       };
     }
@@ -43,6 +52,19 @@ export const FoodCard: React.FC<FoodCardProps> = ({ food, onConsume, onDelete })
   };
 
   const badge = getStatusBadge();
+
+  const handleConsume = async () => {
+    if (busy) return;
+    setConsuming(true);
+    setConsumeError('');
+    try {
+      await onConsume(food.id);
+      // On success this card unmounts (the item leaves the active list); nothing left to reset.
+    } catch (err) {
+      setConsumeError(err instanceof Error ? err.message : 'Không thể cập nhật. Thử lại.');
+      setConsuming(false);
+    }
+  };
 
   return (
     <div className="glass-card rounded-2xl p-3.5 transition-all duration-200 hover:shadow-md flex flex-col gap-2.5">
@@ -98,28 +120,57 @@ export const FoodCard: React.FC<FoodCardProps> = ({ food, onConsume, onDelete })
         </div>
       </div>
 
+      {consumeError && <p role="alert" className="text-xs font-semibold text-danger-700 bg-danger-50 rounded-xl p-2">{consumeError}</p>}
+
       <div className="flex items-center justify-between pt-2 border-t border-slate-100/80 text-xs">
         <div className="text-[11px] text-slate-400 font-medium flex items-center gap-1">
           <Clock className="w-3 h-3 text-slate-300" />
           <span>{food.created_by || 'Bạn cùng phòng'}</span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           <button
-            onClick={() => onDelete(food.id)}
-            className="p-1.5 text-slate-400 hover:text-danger-600 hover:bg-danger-50/80 rounded-xl transition-colors"
+            onClick={() => setEditOpen(true)}
+            disabled={busy}
+            aria-label={`Sửa ${food.name}`}
+            className="min-w-11 min-h-11 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors disabled:opacity-40"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => setConfirmDeleteOpen(true)}
+            disabled={busy}
+            aria-label={`Xóa ${food.name}`}
+            className="min-w-11 min-h-11 flex items-center justify-center text-slate-400 hover:text-danger-600 hover:bg-danger-50/80 rounded-xl transition-colors disabled:opacity-40"
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
           <button
-            onClick={() => onConsume(food.id)}
-            className="px-3 py-1.5 bg-gradient-to-r from-fresh-600 to-emerald-500 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-xs hover:shadow-md transition-all active:scale-95"
+            onClick={() => void handleConsume()}
+            disabled={busy}
+            className="min-h-11 px-3 py-1.5 bg-gradient-to-r from-fresh-600 to-emerald-500 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-xs hover:shadow-md transition-all active:scale-95 disabled:opacity-60"
           >
-            <Utensils className="w-3 h-3" />
-            <span>Đã nấu</span>
+            {consuming ? <Loader2 className="w-3 h-3 motion-safe:animate-spin" /> : <Utensils className="w-3 h-3" />}
+            <span>{consuming ? 'Đang lưu...' : 'Đã nấu'}</span>
           </button>
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={confirmDeleteOpen}
+        title={`Xóa ${food.name}?`}
+        description="Món này sẽ bị xóa khỏi tủ lạnh. Không thể hoàn tác."
+        confirmLabel="Xóa món"
+        onCancel={() => setConfirmDeleteOpen(false)}
+        onConfirm={async () => { await onDelete(food.id); setConfirmDeleteOpen(false); }}
+      />
+
+      <FoodEditModal
+        isOpen={editOpen}
+        food={food}
+        onClose={() => setEditOpen(false)}
+        onSave={onEdit}
+      />
     </div>
   );
 };

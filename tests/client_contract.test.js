@@ -192,13 +192,13 @@ test('every planning method/path exists in runtime spec; all schemas compile and
   for(const [name,required] of Object.entries({FoodList:['items','total'],ShoppingList:['items','total'],Deleted:['success','deleted_id'],RoomDetail:['id','code','name','created_at','active_food_count','urgent_food_count'],RecipeSuggestion:['food_ids','ingredients_missing','instructions'],RecipeResult:['source','generated_at','suggestions']})) for(const field of required) assert.ok(schema.components.schemas[name].required.includes(field),`${name}.${field}`);
 });
 
-test('planned session renewal is authenticated and explicitly unavailable without changing the session',async()=>{
+test('session renewal is authenticated, contract-shaped, and the real client atomically renews the token while retaining room/profile/expiry',async()=>{
   const path='/api/auth/session';
   const operation=(await raw('/api/openapi.json')).body.paths[path].patch;
   assert.deepEqual(operation.security,[{RoomBearer:[]}]);
-  assert.match(operation['x-availability'],/C026/);
+  assert.equal(operation['x-availability'],undefined,'C026 shipped; must no longer be marked unavailable');
   assert.deepEqual(operation.responses[200].content['application/json'].schema,{$ref:'#/components/schemas/AuthSession'});
-  const validate=ajv.compile(operation.requestBody.content['application/json'].schema);
+  const validate=ajv.compile({...converted(operation.requestBody.content['application/json'].schema),definitions:converted(schema.components.schemas)});
   for(const nickname of ['A','x'.repeat(100)]) assert.equal(validate({nickname}),true);
   for(const input of [{},{nickname:''},{nickname:'x'.repeat(101)},{nickname:4},{nickname:'New',room_code:second.room.code}]) assert.equal(validate(input),false);
 
@@ -207,13 +207,47 @@ test('planned session renewal is authenticated and explicitly unavailable withou
     assert.equal(result.status,401);
     assert.deepEqual(result.body,{error:'A valid room session is required.',code:'UNAUTHORIZED'});
   }
-  const before=await raw('/api/auth/verify-token','POST',{token:first.token});
-  const unavailable=await raw(path,'PATCH',{nickname:'New nickname'});
-  assert.equal(unavailable.status,503);
-  assert.deepEqual(unavailable.body,{error:'Session updates are not available yet.',code:'SERVICE_UNAVAILABLE'});
-  const after=await raw('/api/auth/verify-token','POST',{token:first.token});
-  assert.equal(before.status,200);
-  assert.deepEqual(after,before,'the placeholder must not alter or renew the existing session');
+
+  // Foreign room_code in the body is rejected outright, never silently followed.
+  const foreignRoom=await raw(path,'PATCH',{nickname:'New nickname',room_code:second.room.code});
+  assert.equal(foreignRoom.status,403);
+
+  const decode=token=>JSON.parse(Buffer.from(token.split('.')[0],'base64url').toString());
+  // The live cached session may have been re-joined by an earlier test in this file
+  // (a fresh token/exp), so anchor on the actual current session, not the `first`
+  // binding captured once in test.before.
+  const originalToken=api.sessionCache.get().token,originalExp=decode(originalToken).exp;
+
+  // Exercise the actual imported client, not raw HTTP: it must PATCH, validate the
+  // response, and atomically replace the cached session (matching create/join-room).
+  const renewed=await api.updateNickname('Actor Renamed');
+  validateSchema('AuthSession',renewed);
+  assert.equal(renewed.nickname,'Actor Renamed');
+  assert.equal(renewed.room.code,first.room.code);
+  assert.notEqual(renewed.token,originalToken,'nickname is embedded in the token, so renewal must mint a new one');
+  assert.equal(decode(renewed.token).exp,originalExp,'must retain the original expiry, never extend it');
+  assert.equal(decode(renewed.token).nickname,'Actor Renamed');
+  const cached=api.sessionCache.get();
+  assert.equal(cached.token,renewed.token,'the client must atomically replace the cached session with the renewed token');
+  assert.equal(cached.nickname,'Actor Renamed');
+
+  // The previously issued token is not globally revoked; it independently remains valid.
+  const oldStillValid=await raw('/api/auth/verify-token','POST',{token:originalToken});
+  assert.equal(oldStillValid.status,200);
+  assert.equal(oldStillValid.body.payload.nickname,'Actor One','the old token keeps its own original claims');
+
+  // Subsequent food actors use the newly verified nickname (server derives created_by from the session).
+  const afterRename=await api.addFood({room_code:first.room.code,name:'Actor rename probe',compartment:'DOOR',shelf_life_days:1});
+  assert.equal(afterRename.created_by,'Actor Renamed');
+  await api.deleteFood(afterRename.id);
+
+  // Invalid nicknames reject without minting a token or touching the cached session.
+  const beforeInvalid=api.sessionCache.get();
+  for(const nickname of ['',' ','x'.repeat(101)]) await assert.rejects(()=>api.updateNickname(nickname),fail(400,'INVALID_INPUT'));
+  assert.deepEqual(api.sessionCache.get(),beforeInvalid,'a rejected update must never mutate the existing session');
+
+  // Restore the well-known baseline session/nickname for later tests in this file.
+  first=await api.joinRoomWithPasscode(first.room.code,'6789','Actor One');
 });
 
 test('actual recipe client consumes exact IDs atomically and retries the same operation', async () => {

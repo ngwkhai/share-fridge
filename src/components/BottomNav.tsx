@@ -19,7 +19,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   onOpenRecipe
 }) => {
   return (
-    <div className="fixed bottom-3 left-0 right-0 z-40 max-w-md mx-auto px-3">
+    <div className="fixed bottom-3 left-0 right-0 z-40 max-w-md mx-auto px-3 safe-bottom">
       {/* Floating White Frosted Glass Dock */}
       <div className="glass-dock-white rounded-3xl px-3 py-2 flex items-center justify-between">
         {/* Tab: Tủ lạnh */}
@@ -48,13 +48,15 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         <div className="flex items-center gap-1.5 -mt-6">
           <button
             onClick={onOpenVoice}
+            aria-label="Thêm món bằng giọng nói"
             className="w-11 h-11 rounded-full bg-white text-slate-700 border border-slate-200 flex items-center justify-center shadow-md hover:bg-slate-50 active:scale-90 transition-transform"
           >
             <Mic className="w-5 h-5 text-fresh-600" />
           </button>
           <button
             onClick={onOpenQuickAdd}
-            className="w-13 h-13 rounded-full bg-gradient-to-tr from-fresh-600 to-emerald-500 text-white flex items-center justify-center shadow-[0_4px_20px_rgba(16,185,129,0.45)] hover:scale-105 active:scale-90 transition-all font-black border-2 border-white"
+            aria-label="Thêm món mới"
+            className="w-[52px] h-[52px] rounded-full bg-gradient-to-tr from-fresh-600 to-emerald-500 text-white flex items-center justify-center shadow-[0_4px_20px_rgba(16,185,129,0.45)] hover:scale-105 active:scale-90 transition-all font-black border-2 border-white"
           >
             <Plus className="w-7 h-7" />
           </button>

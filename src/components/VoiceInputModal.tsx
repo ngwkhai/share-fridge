@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff, X, Sparkles, CheckCircle2 } from 'lucide-react';
 import { api } from '../services/api';
 import { ParsedFoodItem } from '../types';
+import { Dialog } from './Dialog';
 
 interface VoiceInputModalProps {
   isOpen: boolean;
@@ -123,16 +124,22 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-      <div className="bg-slate-900 text-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl space-y-6 text-center border border-white/10">
+    <Dialog
+      isOpen={isOpen}
+      onClose={onClose}
+      labelledBy="voice-modal-title"
+      overlayClassName="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200"
+      panelClassName="bg-slate-900 text-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl space-y-6 text-center border border-white/10"
+    >
         <div className="flex justify-between items-center">
-          <div className="flex items-center gap-2 text-fresh-400 font-extrabold text-sm tracking-wide">
+          <div id="voice-modal-title" className="flex items-center gap-2 text-fresh-400 font-extrabold text-sm tracking-wide">
             <Sparkles className="w-4 h-4" />
             <span>Thêm bằng giọng nói</span>
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-slate-300 flex items-center justify-center transition-colors"
+            aria-label="Đóng thêm bằng giọng nói"
+            className="w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 text-slate-300 flex items-center justify-center transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -152,13 +159,15 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
           <button
             type="button"
             onClick={handleToggleListening}
+            aria-label={isListening ? 'Dừng ghi âm' : 'Bắt đầu ghi âm'}
+            aria-pressed={isListening}
             className={`relative z-10 w-24 h-24 rounded-full flex items-center justify-center transition-all shadow-xl active:scale-95 ${
               isListening
                 ? 'bg-gradient-to-tr from-rose-500 to-amber-500 text-white shadow-[0_0_40px_rgba(239,68,68,0.6)]'
                 : 'bg-gradient-to-tr from-fresh-500 to-emerald-400 text-slate-950 shadow-[0_0_30px_rgba(16,185,129,0.5)]'
             }`}
           >
-            {isListening ? <Mic className="w-10 h-10 animate-pulse" /> : <MicOff className="w-10 h-10" />}
+            {isListening ? <Mic className="w-10 h-10 motion-safe:animate-pulse" /> : <MicOff className="w-10 h-10" />}
           </button>
         </div>
 
@@ -182,7 +191,6 @@ export const VoiceInputModal: React.FC<VoiceInputModalProps> = ({
           <CheckCircle2 className="w-4 h-4" />
           <span>{isParsing ? 'Đang phân tích...' : preview ? 'Điền vào phiếu thêm' : 'Phân tích lời nói'}</span>
         </button>
-      </div>
-    </div>
+    </Dialog>
   );
 };

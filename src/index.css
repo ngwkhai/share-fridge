@@ -112,3 +112,25 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* DESIGN.md: "Never ship motion that ignores prefers-reduced-motion." Collapses every
+   animation/transition project-wide (including Tailwind's animate-* utilities and the
+   glow/siri keyframes above) to an effectively instant, non-animated state. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Mobile safe-area insets for notches/home indicators (index.html sets viewport-fit=cover). */
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}

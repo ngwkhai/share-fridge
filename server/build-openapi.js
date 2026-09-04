@@ -20,6 +20,7 @@ const schemas = {
   Room: object({ id, code, name: str(100,1), created_at: date }),
   RoomCreate: object({ code, name: str(100,1), passcode: { type: 'string', pattern: '^[0-9]{4,6}$', writeOnly: true }, nickname: str(100,1), google_identity_token: str() }, ['passcode']),
   RoomJoin: object({ code, passcode: { type: 'string', pattern: '^[0-9]{4,6}$', writeOnly: true }, nickname: str(100,1), google_identity_token: str() }, ['code','passcode']),
+  UpdateSessionDto: object({ nickname: str(100,1) }, ['nickname'], { additionalProperties: false }),
   SessionPayload: object({ room_code: code, nickname: str(100,1), exp: { type: 'integer', description: 'Expiry as Unix epoch milliseconds.' }, google_profile: ref('GoogleProfile') }, ['room_code','nickname','exp']),
   AuthSession: object({ room: ref('Room'), token: str(), nickname: str(100,1), google_profile: ref('GoogleProfile') }, ['room','token','nickname']),
   GoogleSession: object({ profile: ref('GoogleProfile'), identity_token: str(), expires_at: date }),
@@ -75,7 +76,7 @@ endpoint('post','/api/auth/join-room','AuthSession',{auth:'public',input:'RoomJo
 endpoint('post','/api/auth/verify-token','VerifiedSession',{auth:'public',input:object({token:str()})});
 paths['/api/auth/verify-token'].post.responses[401].content = json('InvalidSession');
 endpoint('post','/api/auth/google','GoogleSession',{auth:'public',input:object({credential:str(8192,1)},['credential'],{additionalProperties:false})});
-endpoint('patch','/api/auth/session','AuthSession',{input:object({nickname:str(100,1)},['nickname'],{additionalProperties:false}),unavailable:'C026: returns 503 until nickname renewal is implemented.'});
+endpoint('patch','/api/auth/session','AuthSession',{input:'UpdateSessionDto',summary:'Renew the verified nickname; retains room membership, Google profile and the original session expiry'});
 endpoint('post','/api/rooms','Room',{auth:'public',input:'RoomCreate',status:201});
 endpoint('get','/api/rooms/{code}','RoomDetail');
 endpoint('get','/api/foods','FoodList',{parameters:[query('room_code',code),query('status',{type:'string',enum:['active','consumed']},false)]});

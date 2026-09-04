@@ -28,7 +28,7 @@ export const Header: React.FC<HeaderProps> = ({
   connectionStatus
 }) => {
   return (
-    <header className="glass-header px-4 py-3 sticky top-0 z-30 shadow-xs">
+    <header className="glass-header px-4 py-3 sticky top-0 z-30 shadow-xs safe-top">
       <div className="flex items-center justify-between">
         {/* Brand, User Nickname & Room Info */}
         <div className="flex items-center gap-3">
@@ -78,25 +78,28 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center gap-1.5">
           <button
             onClick={onOpenSettings}
-            className="w-9 h-9 rounded-2xl bg-white/80 hover:bg-white text-slate-600 hover:text-slate-900 border border-slate-200/80 flex items-center justify-center transition-all shadow-2xs active:scale-95"
+            aria-label="Cài đặt phòng & tài khoản"
             title="Cài đặt phòng & tài khoản"
+            className="w-11 h-11 rounded-2xl bg-white/80 hover:bg-white text-slate-600 hover:text-slate-900 border border-slate-200/80 flex items-center justify-center transition-all shadow-2xs active:scale-95"
           >
             <Settings className="w-4 h-4" />
           </button>
           <button
             onClick={onOpenNotifications}
-            className="w-9 h-9 rounded-2xl bg-white/80 hover:bg-white text-slate-600 hover:text-slate-900 border border-slate-200/80 flex items-center justify-center transition-all shadow-2xs active:scale-95"
+            aria-label="Thông báo"
             title="Thông báo"
+            className="w-11 h-11 rounded-2xl bg-white/80 hover:bg-white text-slate-600 hover:text-slate-900 border border-slate-200/80 flex items-center justify-center transition-all shadow-2xs active:scale-95"
           >
             <Bell className="w-4 h-4" />
           </button>
           <button
             onClick={onRefresh}
             disabled={loading}
-            className="w-9 h-9 rounded-2xl bg-white/80 hover:bg-white text-slate-600 hover:text-slate-900 border border-slate-200/80 flex items-center justify-center transition-all shadow-2xs active:scale-95 disabled:opacity-50"
+            aria-label="Làm mới"
             title="Làm mới"
+            className="w-11 h-11 rounded-2xl bg-white/80 hover:bg-white text-slate-600 hover:text-slate-900 border border-slate-200/80 flex items-center justify-center transition-all shadow-2xs active:scale-95 disabled:opacity-50"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-fresh-600' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${loading ? 'motion-safe:animate-spin text-fresh-600' : ''}`} />
           </button>
         </div>
       </div>

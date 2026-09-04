@@ -234,6 +234,18 @@ export const api = {
     sessionCache.save({ room: data.room, code: data.room.code, name: data.room.name, passcode, nickname: data.nickname, token: data.token, cached_at: Date.now(), ...(data.google_profile ? { google_profile: data.google_profile } : {}) });
     return data;
   },
+  // Renews the nickname on the server, then atomically replaces the local session
+  // with the newly signed token. A late response after logout/room-change never
+  // clobbers the replacement session (matches createRoom/joinRoom's own guard).
+  async updateNickname(nickname: string): Promise<AuthSession> {
+    const before = sessionCache.get();
+    if (!before) throw new ApiError('Chưa có phiên phòng.', 0, 'NO_SESSION', '/api/auth/session');
+    const data = await request('/api/auth/session', authSession, { method: 'PATCH', token: before.token, body: { nickname } });
+    const current = sessionCache.get();
+    if (!current || current.token !== before.token) throw new ApiError('Phiên đã thay đổi. Vui lòng thử lại.', 0, 'SESSION_CHANGED', '/api/auth/session');
+    sessionCache.save({ ...current, room: data.room, code: data.room.code, name: data.room.name, nickname: data.nickname, token: data.token, ...(data.google_profile ? { google_profile: data.google_profile } : {}) });
+    return data;
+  },
   async verifyToken(token?: string) {
     const selectedToken = token || getToken();
     const result = await request('/api/auth/verify-token', (x): x is { valid: true; payload: SessionPayload; room: Room } => object(x) && x.valid === true && sessionPayload(x.payload) && room(x.room), { method: 'POST', public: true, body: { token: selectedToken } });

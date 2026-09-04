@@ -150,9 +150,6 @@ async function dispatchApiRequest(req, res, repository, integrations) {
   // fresh signed URL and never trusted from a stored/client value.
   const signFoods = async list => (integrations.photos || photoService).signFoods(db, list);
   const signFood = async food => (await signFoods([food]))[0];
-  // C026 will renew the nickname while retaining the existing room/profile/expiry.
-  // Reserve the authenticated route now; do not report a session update before it exists.
-  if (pathname === '/api/auth/session' && method === 'PATCH') throw new HttpError(503, 'SERVICE_UNAVAILABLE', 'Session updates are not available yet.');
   let bodyPromise;
   const parseJsonBody = () => {
     bodyPromise ??= readJsonBody(req).then(data => {
@@ -161,6 +158,18 @@ async function dispatchApiRequest(req, res, repository, integrations) {
     });
     return bodyPromise;
   };
+
+  // Renews the nickname into a freshly signed token while retaining the existing
+  // room membership, verified Google profile and the ORIGINAL session expiry
+  // (never extended). Room membership itself cannot be changed through this route.
+  if (pathname === '/api/auth/session' && method === 'PATCH') {
+    const data = await parseJsonBody();
+    const nickname = boundedText(data.nickname, undefined, 'Nickname');
+    const token = generateSessionToken(session.room_code, nickname, session.google_profile, session.exp);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ room: publicRoom(sessionRoom), token, nickname, ...(session.google_profile ? { google_profile: session.google_profile } : {}) }));
+    return true;
+  }
 
   if (pathname === '/api/realtime-token' && method === 'GET') {
     if (!(await realtimeAvailable(db))) throw new HttpError(503, 'REALTIME_UNAVAILABLE', 'Room synchronization is not configured.');

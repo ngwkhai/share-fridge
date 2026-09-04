@@ -3,6 +3,7 @@ import { CreateFoodDto, CompartmentType } from '../types';
 import { CameraCapture } from './CameraCapture';
 import { api } from '../services/api';
 import { X, Check } from 'lucide-react';
+import { Dialog } from './Dialog';
 
 interface QuickAddModalProps {
   isOpen: boolean;
@@ -33,14 +34,23 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
   const [storagePath, setStoragePath] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  // A fresh voice draft (or an initial open) must apply exactly its own fields, never
+  // merge with whatever was left in the form from a previous entry.
+  const applyDraft = (draft?: Partial<CreateFoodDto>) => {
+    setName(draft?.name ?? '');
+    setQuantity(draft?.quantity ?? '');
+    setCompartment(draft?.compartment ?? 'FRIDGE_TOP');
+    setContainerTag(draft?.container_tag ?? '');
+    setShelfDays(draft?.shelf_life_days ?? 3);
+  };
+
   React.useEffect(() => {
-    if (initialData) {
-      if (initialData.name) setName(initialData.name);
-      setQuantity(initialData.quantity ?? '');
-      if (initialData.compartment) setCompartment(initialData.compartment);
-      setContainerTag(initialData.container_tag ?? '');
-      setShelfDays(initialData.shelf_life_days ?? 3);
-    }
+    // A photo staged for a previous draft must never be silently attached to a new one.
+    if (storagePath) void api.removePhoto(storagePath).catch(() => {});
+    setPhotoUrl(null);
+    setStoragePath(null);
+    applyDraft(initialData);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialData]);
 
   if (!isOpen) return null;
@@ -60,33 +70,42 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
         storage_path: storagePath,
         created_by: nickname
       });
-      onClose();
-      setName('');
-      setQuantity('');
-      setContainerTag('');
+      applyDraft(undefined);
       setPhotoUrl(null);
       setStoragePath(null);
+      onClose();
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Closing without saving must not leave an uploaded-but-unattached photo behind.
+  // Discarding (X / backdrop / Escape) must clear the draft completely: any staged
+  // photo is released, and every field resets so the next open never inherits it.
   const handleClose = () => {
     if (storagePath) void api.removePhoto(storagePath).catch(() => {});
     setPhotoUrl(null);
     setStoragePath(null);
+    applyDraft(undefined);
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-      <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+    <Dialog
+      isOpen={isOpen}
+      onClose={handleClose}
+      closeDisabled={submitting}
+      labelledBy="quick-add-title"
+      overlayClassName="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200"
+      panelClassName="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto"
+    >
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-          <h3 className="font-black text-slate-900 text-base tracking-tight">Thêm Món Mới</h3>
+          <h3 id="quick-add-title" className="font-black text-slate-900 text-base tracking-tight">Thêm Món Mới</h3>
           <button
+            type="button"
             onClick={handleClose}
-            className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200"
+            disabled={submitting}
+            aria-label="Đóng thêm món"
+            className="w-11 h-11 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 disabled:opacity-50"
           >
             <X className="w-4 h-4" />
           </button>
@@ -101,7 +120,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full px-4 py-3 border border-slate-200 rounded-2xl text-sm font-semibold focus:ring-2 focus:ring-fresh-500 focus:outline-none glass-input"
-              autoFocus
+              data-autofocus
               required
             />
             <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
@@ -216,7 +235,6 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
             <span>{submitting ? 'Đang lưu...' : 'Lưu vào tủ'}</span>
           </button>
         </form>
-      </div>
-    </div>
+    </Dialog>
   );
 };

@@ -951,7 +951,7 @@
     },
     "/api/auth/session": {
       "patch": {
-        "summary": "PATCH /api/auth/session",
+        "summary": "Renew the verified nickname; retains room membership, Google profile and the original session expiry",
         "security": [
           {
             "RoomBearer": []
@@ -1064,23 +1064,11 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": [
-                  "nickname"
-                ],
-                "properties": {
-                  "nickname": {
-                    "type": "string",
-                    "maxLength": 100,
-                    "minLength": 1
-                  }
-                },
-                "additionalProperties": false
+                "$ref": "#/components/schemas/UpdateSessionDto"
               }
             }
           }
-        },
-        "x-availability": "C026: returns 503 until nickname renewal is implemented."
+        }
       }
     },
     "/api/rooms": {
@@ -3908,6 +3896,20 @@
             "type": "string"
           }
         }
+      },
+      "UpdateSessionDto": {
+        "type": "object",
+        "required": [
+          "nickname"
+        ],
+        "properties": {
+          "nickname": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
       },
       "SessionPayload": {
         "type": "object",
