@@ -28,7 +28,7 @@ export function useRoomSync() {
       const session = api.sessionCache.get();
       controller.activate(session);
       if (session) {
-        const subscription = createRealtimeSubscription(session.code, { ...controller.capture(), delta: controller.applyDelta });
+        const subscription = createRealtimeSubscription(session.code, controller.capture());
         realtime.current = subscription;
         stopRealtime = subscription.stop;
         void controller.refresh();

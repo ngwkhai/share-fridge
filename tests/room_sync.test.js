@@ -74,9 +74,35 @@ test('direct room delta updates a complete peer snapshot immediately and tombsto
 
 test('untrusted realtime deltas with invalid room or item shape do not alter a snapshot',async()=>{
   const f=fixture();await f.controller.refresh();const before=f.controller.getState().snapshot;
+  for(const delta of [null,{}, {resource:'food',operation:'upsert'}, {resource:'shopping',operation:'upsert',item:null}, {resource:'food',operation:'invalid'}]) {
+    assert.equal(f.controller.applyDelta(delta),false,'malformed payload must be rejected without throwing');
+  }
   assert.equal(f.controller.applyDelta({resource:'food',operation:'delete',id:'x',room_code:'foreign'}),false);
   assert.equal(f.controller.applyDelta({resource:'food',operation:'upsert',item:{id:'x',room_code:session.code}}),false);
   assert.equal(f.controller.getState().snapshot,before);
+});
+
+test('a delta callback from an old session cannot delete data after rejoining the same room',async()=>{
+  const food={id:'same-room-food',room_code:session.code};
+  const f=fixture(async()=>({...empty(),foods:[food]}));await f.controller.refresh();
+  const old=f.controller.capture();
+  f.controller.activate({...session,token:'replacement-token'});await f.controller.refresh();
+  const delta={resource:'food',operation:'delete',id:food.id,room_code:session.code};
+  assert.equal(old.delta(delta),false);
+  assert.equal(f.controller.getState().snapshot.foods.length,1);
+  assert.equal(f.controller.capture().delta(delta),true);
+  assert.deepEqual(f.controller.getState().snapshot.foods,[]);
+});
+
+test('delta invalidates an older read without leaving refreshing stuck',async()=>{
+  const pending=deferred();let reads=0;
+  const f=fixture(()=>++reads===1?Promise.resolve(empty()):pending.promise);await f.controller.refresh();
+  const read=f.controller.refresh();assert.equal(f.controller.getState().refreshing,true);
+  assert.equal(f.controller.applyDelta({resource:'food',operation:'delete',id:'removed',room_code:session.code}),true);
+  assert.equal(f.controller.getState().refreshing,false);
+  pending.resolve({...empty(),foods:[{id:'removed'}]});await read;
+  assert.deepEqual(f.controller.getState().snapshot.foods,[]);
+  assert.equal(f.controller.getState().refreshing,false);
 });
 
 test('a peer delta is emitted after server success before the source device waits for its full refresh',async()=>{

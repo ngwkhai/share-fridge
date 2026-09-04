@@ -23,9 +23,11 @@ export class SyncError extends Error {
   constructor(message: string, public code: string) { super(message); this.name = 'SyncError'; }
 }
 const errorStatus = (error: unknown) => typeof error === 'object' && error !== null && 'status' in error ? error.status : 0;
-const validDelta = (delta: RoomSyncDelta) => {
+const validDelta = (value: unknown): value is RoomSyncDelta => {
+  const delta = value as RoomSyncDelta | null;
   if (!delta || typeof delta !== 'object' || (delta.resource !== 'food' && delta.resource !== 'shopping')) return false;
   if (delta.operation === 'delete') return typeof delta.id === 'string' && delta.id.length > 0 && /^\d{6}$/.test(delta.room_code);
+  if (delta.operation !== 'upsert' || !delta.item || typeof delta.item !== 'object') return false;
   if (delta.resource === 'shopping') {
     const item = delta.item;
     return typeof item.id === 'string' && !!item.id && /^\d{6}$/.test(item.room_code) && typeof item.name === 'string' && typeof item.is_bought === 'boolean' && typeof item.created_at === 'string';
@@ -69,6 +71,7 @@ export function createRoomSyncController(deps: Dependencies) {
       const epoch = generation;
       return {
         refresh: () => current(epoch) ? controller.refresh() : Promise.resolve(),
+        delta: (delta: RoomSyncDelta) => current(epoch) && controller.applyDelta(delta),
         transport: (mode: typeof transport) => {
           if (!current(epoch)) return;
           transport = mode;
@@ -127,7 +130,7 @@ export function createRoomSyncController(deps: Dependencies) {
         if (!current(epoch)) throw new SyncError('Phiên đã thay đổi.', 'SESSION_CHANGED');
       }
     },
-    applyDelta(delta: RoomSyncDelta) {
+    applyDelta(delta: unknown) {
       const session = state.session, snapshot = state.snapshot;
       if (!validDelta(delta)) return false;
       const deltaRoomCode = delta.operation === 'upsert' ? delta.item.room_code : delta.room_code;
@@ -166,7 +169,7 @@ export function createRoomSyncController(deps: Dependencies) {
       };
       const next = { room, foods, consumed, shopping, savedAt: Date.now() };
       deps.save(session.code, next);
-      emit({ snapshot: next, error: '' });
+      emit({ snapshot: next, refreshing: false, error: '' });
       return true;
     },
     connectivityChanged() {

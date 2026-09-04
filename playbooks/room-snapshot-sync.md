@@ -15,6 +15,8 @@ An empty successful GET is data. Replaying a nonempty cache turns an intentional
 - Use the canonical session cache token when localStorage events race separate legacy-key writes. Cache keeps original IDs and ISO expiry; reading it recalculates age without changing expiry. Cache never becomes a POST body.
 - Hard DELETE Realtime payloads are a poor room-privacy boundary. This project publishes room_sync_versions INSERT/UPDATE invalidations only; a fixed-search-path owner trigger increments revision in the same transaction as food/shopping writes. The local DB test proves rollback preserves revision, and a nonowner role sees only its room. Publishing raw foods/shopping or FOR ALL TABLES disables readiness.
 - Subscribe before claiming connected, then complete a fresh snapshot. Renew short room JWTs before expiry; replace failed/closed channels; stop timers/listeners and ignore callbacks after disposal. Keep slow refresh for time-based expiry and label the four-second fallback as periodic updates.
+- Direct delta callbacks must capture the session generation too, including replacement sessions in the same room. Reject missing/null delta items without throwing. When a delta cancels an older read ticket, clear that read's refreshing state.
+- Live latency evidence must identify the bundle actually loaded in each browser, not merely the last successful deployment. In the 2026-09-04 follow-up, a hard reload replaced a stale service-worker bundle without clearing the session. Label click-to-DOM timings separately from commit-to-DOM: a server timestamp constructed before an INSERT is not its commit time. Shared-storage tabs and synthetic offline events do not prove isolated-session or real-disconnect acceptance.
 
 ## Smoke tests
 
