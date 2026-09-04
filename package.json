@@ -15,7 +15,9 @@
     "test:client-postgres": "node --test --test-timeout=60000 tests/client_postgres.integration.js",
     "test:sync-postgres": "node --test --test-timeout=60000 tests/sync_postgres.integration.js",
     "test:ai-postgres": "node --test --test-timeout=60000 tests/ai_postgres.integration.js",
-    "test:photos-postgres": "node --test --test-timeout=60000 tests/photos_postgres.integration.js"
+    "test:photos-postgres": "node --test --test-timeout=60000 tests/photos_postgres.integration.js",
+    "test:e2e": "npx playwright test",
+    "test:all": "npm test && npx playwright test"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.114.0",
@@ -31,6 +33,7 @@
     "web-push": "^3.6.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "^22.13.9",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",

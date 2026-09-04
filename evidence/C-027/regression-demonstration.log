@@ -1,0 +1,18 @@
+=== C-027 Verify Item 2: Route / Auth / Cache Regression Demonstration ===
+
+1. Simulating Auth Regression (Request without Bearer Token):
+   Response status: 401 Unauthorized
+   Error body: { error: 'A valid room session is required.', code: 'UNAUTHORIZED' }
+   [VERIFIED] Unauthenticated request correctly rejected with 401 UNAUTHORIZED.
+
+2. Simulating Cross-Room Boundary Regression:
+   Response status: 403
+   Error body: { error: 'Room access denied.', code: 'FORBIDDEN' }
+   [VERIFIED] Cross-room access correctly rejected with 403 FORBIDDEN.
+
+3. Simulating Room Takeover Regression:
+   Response status: 409
+   Error body: { error: 'Room code already exists.', code: 'ROOM_EXISTS' }
+   [VERIFIED] Room takeover correctly rejected with 409 ROOM_EXISTS.
+
+=== All 3 Regression Demonstrations Passed Successfully ===
