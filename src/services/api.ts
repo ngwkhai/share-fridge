@@ -153,7 +153,7 @@ const shopping: Guard<ShoppingItem> = (x): x is ShoppingItem => object(x) && non
 const list = <T>(guard: Guard<T>): Guard<{ items: T[]; total: number }> => (x): x is { items: T[]; total: number } => object(x) && Array.isArray(x.items) && x.items.every(guard) && integer(x.total) && x.total === x.items.length;
 const parsed: Guard<ParsedFoodItem> = (x): x is ParsedFoodItem => object(x) && nonempty(x.name) && compartment(x.compartment) && integer(x.shelf_life_days) && x.shelf_life_days >= 0 && x.shelf_life_days <= 365 && optional(x.quantity, string) && optional(x.container_tag, string);
 const recipe: Guard<RecipeSuggestion> = (x): x is RecipeSuggestion => object(x) && nonempty(x.id) && nonempty(x.title) && integer(x.cook_time_minutes) && x.cook_time_minutes > 0 && ['food_ids','ingredients_used','ingredients_missing','instructions'].every(key => strings(x[key])) && Array.isArray(x.food_ids) && x.food_ids.length > 0 && x.food_ids.length <= 50 && new Set(x.food_ids).size === x.food_ids.length;
-const source = (x: unknown) => x === 'gemini-3.6-flash' || x === 'heuristic';
+const source = (x: unknown) => x === 'gemini-3.1-flash-lite' || x === 'heuristic';
 const deleted = (id: string): Guard<{ success: true; deleted_id: string }> => (x): x is { success: true; deleted_id: string } => object(x) && x.success === true && x.deleted_id === id;
 
 const getToken = () => {

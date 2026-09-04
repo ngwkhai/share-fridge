@@ -36,8 +36,8 @@ Room auth is `Authorization: Bearer <room-token>`. Verify signature/expiry/room 
 | PATCH | `/api/foods/:id/consume` | owning room token | `{add_to_shopping_list?:boolean,consumed_by?:string}` | `FoodItem`; actor server-derived, repeat must not duplicate shopping |
 | POST | `/api/foods/consume-batch` | owning room token | `{food_ids:string[],idempotency_key:string,add_to_shopping_list?:boolean}` | `{items:FoodItem[],consumed_at:string}`; atomic/replay-safe |
 | DELETE | `/api/foods/:id` | owning room token | none | `{success:true,deleted_id:string}` |
-| POST | `/api/ai/parse-voice` | room token | `{transcript:string}` | `{parsed:ParsedFoodItem,confidence:number,source:"gemini-3.6-flash"|"heuristic"}` |
-| POST | `/api/ai/suggest-recipes` | room token | `{room_code:string,preference?:string}` | `{suggestions:RecipeSuggestion[],generated_at:string,source:"gemini-3.6-flash"|"heuristic"}` |
+| POST | `/api/ai/parse-voice` | room token | `{transcript:string}` | `{parsed:ParsedFoodItem,confidence:number,source:"gemini-3.1-flash-lite"|"heuristic"}` |
+| POST | `/api/ai/suggest-recipes` | room token | `{room_code:string,preference?:string}` | `{suggestions:RecipeSuggestion[],generated_at:string,source:"gemini-3.1-flash-lite"|"heuristic"}` |
 | GET | `/api/shopping-items` | room token | `?room_code=string` | `{items:ShoppingItem[],total:number}` |
 | POST | `/api/shopping-items` | room token | `{room_code:string,name:string,quantity?:string}` | `ShoppingItem`, 201 |
 | PATCH | `/api/shopping-items/:id/toggle` | owning room token | `{is_bought:boolean,move_to_fridge?:boolean,compartment?:CompartmentType}` | `ShoppingItem`; move inserts exactly one food, default 3 days; false cannot move |
