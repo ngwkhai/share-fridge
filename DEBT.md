@@ -23,3 +23,23 @@ exposure and a condition that must be true before the loan is closed. See
   the target (not just assumed to), or (b) the operator explicitly accepts current
   latency and the PRD's `<500ms` line in `flow/03-prd.md` is corrected to match reality.
   Opened 2026-09-04 (cards: C-021).
+
+  **Update 2026-09-04 (same day):** attempted the Broadcast-API transport switch
+  (see `supabase/realtime_broadcast.sql`, applied to the live database with the
+  operator's explicit approval). It is deployed and safely additive (does not
+  replace or risk the existing `room_sync_versions`/`postgres_changes` fallback).
+  Result: **inconclusive improvement, target still not met.** Measured "event
+  received -> refetch triggered" time dropped in some runs (653-1428ms vs the
+  prior 1231-3169ms baseline) but NOT consistently, and total time-to-visible
+  stayed in the same 2.7-3.1s range across 3 post-migration runs. Root cause
+  found: a single `GET /api/foods` call against Production takes **0.8-1.3s on
+  its own** (measured directly via `curl -w '%{time_total}'`), independent of
+  realtime entirely — this dominates the total latency regardless of transport.
+  This is very likely Vercel serverless cold-start and/or Supabase connection-
+  pooler latency, not a realtime-layer problem, and is a DIFFERENT, deeper
+  investigation than what this DEBT line originally scoped. See
+  `evidence/C-021/live-2026-09-04.md`'s "Broadcast attempt" section for full
+  measurements. Close before: the REST round-trip latency itself is
+  investigated and reduced (connection pooling, function warm-up, or reducing
+  the number of parallel calls `refresh()` makes), separately from the realtime
+  transport question this line was originally about.
