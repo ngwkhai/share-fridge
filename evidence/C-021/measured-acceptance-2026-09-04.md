@@ -21,6 +21,24 @@ Result: **PARTIAL / latency target not met.** No card gate is waived.
 
 Median: **2644 ms**. Range: **2592–3143 ms**. Three samples are insufficient for a meaningful production p95 or SLA claim. These results do not demonstrate the PRD's <500 ms target.
 
+## Production deployment follow-up
+
+Commit `3764701` (delta session/payload guards) was deployed to Production deployment
+`dpl_3gGv8XQjLisGerPSDUWxxs2p7red`. After a reload, both observed tabs ran
+`assets/index-UovJyhOX.js` and showed `Đã kết nối`. A further real UI sample was
+**3515 ms** click-to-peer-visible. It confirms the guard deployment reached Production;
+it does not meet the latency target.
+
+The next SQL migration is prepared locally: the database trigger will publish a
+room-claim-fenced, sanitized `delta` at transaction commit. This avoids holding peer
+visibility behind the source HTTP response and its bounded push dispatch. It is not
+applied yet. The only available route to this database from this session is a temporary
+secret-protected production admin endpoint. Automatic security review rejected deploying
+that new privileged route without explicit authorization. A generated temporary secret
+was immediately removed from Vercel and its local temp file; no endpoint was deployed
+and a source scan confirms no admin route/secret remains. The migration must not be
+presented as Production evidence until it is applied and remeasured.
+
 Sample 1's locator wait timed out and the food was later present in both tabs: excluded from numeric timing results. An initial attempt at sample 4 lost its form while the previous source mutation finished; no sample was recorded for that attempt. The successful separately prepared sample 4 is the one above.
 
 ## Delete/reload and cleanup

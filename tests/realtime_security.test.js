@@ -28,4 +28,8 @@ test('private room broadcast policy permits a room-scoped client send as well as
   assert.match(sql,/create policy room_broadcast_send on realtime\.messages for insert to authenticated with check/i);
   assert.match(sql,/realtime\.messages\.extension = 'broadcast'/i);
   assert.match(sql,/realtime\.topic\(\) = 'room-sync:' \|\| .*room_code/i);
+  assert.match(sql,/TG_TABLE_NAME = 'foods'/);
+  assert.match(sql,/TG_TABLE_NAME = 'shopping_items'/);
+  assert.match(sql,/realtime\.send\(delta, 'delta', 'room-sync:' \|\| target, true\)/);
+  assert.match(sql,/storage_path/,'migration must document that storage paths are excluded from deltas');
 });
