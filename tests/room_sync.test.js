@@ -60,6 +60,32 @@ test('late pre-mutation snapshot cannot resurrect a deleted row',async()=>{
   assert.deepEqual(f.controller.getState().snapshot.foods,[]);
 });
 
+test('direct room delta updates a complete peer snapshot immediately and tombstones prevent late resurrection',async()=>{
+  const f=fixture();await f.controller.refresh();
+  const food={id:'delta-food',room_code:session.code,name:'Peer item',compartment:'DOOR',added_date:'2026-01-01T00:00:00.000Z',expiry_date:'2026-01-04T00:00:00.000Z',days_remaining:3,status:'FRESH'};
+  assert.equal(f.controller.applyDelta({resource:'food',operation:'upsert',item:food}),true);
+  assert.equal(f.controller.getState().snapshot.foods[0].id,food.id);
+  assert.equal(f.saved.get(session.code).foods[0].id,food.id);
+  assert.equal(f.controller.applyDelta({resource:'food',operation:'delete',id:food.id,room_code:session.code}),true);
+  assert.deepEqual(f.controller.getState().snapshot.foods,[]);
+  assert.equal(f.controller.applyDelta({resource:'food',operation:'upsert',item:food}),false,'a delayed peer event cannot bring back a deleted stable ID');
+  assert.deepEqual(f.controller.getState().snapshot.foods,[]);
+});
+
+test('untrusted realtime deltas with invalid room or item shape do not alter a snapshot',async()=>{
+  const f=fixture();await f.controller.refresh();const before=f.controller.getState().snapshot;
+  assert.equal(f.controller.applyDelta({resource:'food',operation:'delete',id:'x',room_code:'foreign'}),false);
+  assert.equal(f.controller.applyDelta({resource:'food',operation:'upsert',item:{id:'x',room_code:session.code}}),false);
+  assert.equal(f.controller.getState().snapshot,before);
+});
+
+test('a peer delta is emitted after server success before the source device waits for its full refresh',async()=>{
+  const refresh=deferred(),announced=deferred();const f=fixture(()=>refresh.promise);
+  const mutation=f.controller.mutate(session.token,async()=>({id:'accepted-write'}),value=>announced.resolve(value));
+  assert.deepEqual(await announced.promise,{id:'accepted-write'},'the low-latency hint is not held behind REST refresh');
+  refresh.resolve(empty());await mutation;
+});
+
 test('logout and room switch invalidate delayed reads, callbacks and auth failures',async()=>{
   const old=deferred();const f=fixture(()=>old.promise);const callbacks=f.controller.capture();const pending=f.controller.refresh();
   f.controller.activate({...session,code:'721022',token:'session-b'});

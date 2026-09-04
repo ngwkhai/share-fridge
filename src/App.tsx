@@ -16,6 +16,7 @@ import { GoogleAuthButton } from './components/GoogleAuthButton';
 import { signOutGoogle } from './services/googleIdentity';
 import { pushClient } from './services/pushClient';
 import { useRoomSync } from './hooks/useRoomSync';
+import type { RoomSyncDelta } from './services/roomSync';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { PlusCircle, Search, Lock, User, ArrowRight } from 'lucide-react';
 import type { FoodItem } from './types';
@@ -172,21 +173,26 @@ export default function App() {
   };
 
   // Data changes are accepted only after server success and a guarded refresh.
-  const runMutation = async <T,>(operation: () => Promise<T>): Promise<T> => {
+  const runMutation = async <T,>(operation: () => Promise<T>, toDelta?: (value: T) => RoomSyncDelta | RoomSyncDelta[]): Promise<T> => {
     setError('');
-    try { return await sync.mutate(operation); }
+    try {
+      const value = await sync.mutate(operation, toDelta);
+      // Direct Broadcast is a low-latency peer hint only. A server-triggered
+      // invalidation always follows and refreshes the authoritative snapshot.
+      return value;
+    }
     catch (err) {
       if (!(err instanceof Error && 'code' in err && err.code === 'SESSION_CHANGED')) setError(err instanceof Error ? err.message : 'Không thể lưu thay đổi.');
       throw err;
     }
   };
   const handleAddFood = async (dto: CreateFoodDto) => {
-    await runMutation(() => api.addFood({ ...dto, created_by: currentNickname }));
+    await runMutation(() => api.addFood({ ...dto, created_by: currentNickname }), item => ({ resource: 'food', operation: 'upsert', item }));
     setVoiceDraftData(undefined);
   };
-  const handleConsumeFood = async (id: string) => { await runMutation(() => api.consumeFood(id, undefined, true)); };
-  const handleDeleteFood = async (id: string) => { await runMutation(() => api.deleteFood(id)); };
-  const handleUpdateFood = async (id: string, dto: UpdateFoodDto) => { await runMutation(() => api.updateFood(id, dto)); };
+  const handleConsumeFood = async (id: string) => { await runMutation(() => api.consumeFood(id, undefined, true), item => ({ resource: 'food', operation: 'upsert', item })); };
+  const handleDeleteFood = async (id: string) => { await runMutation(() => api.deleteFood(id), () => ({ resource: 'food', operation: 'delete', id, room_code: roomCode })); };
+  const handleUpdateFood = async (id: string, dto: UpdateFoodDto) => { await runMutation(() => api.updateFood(id, dto), item => ({ resource: 'food', operation: 'upsert', item })); };
 
   const handleVoiceParsed = (parsed: ParsedFoodItem) => {
     if (!initialCache || api.sessionCache.get()?.token !== initialCache.token) return;
@@ -202,16 +208,16 @@ export default function App() {
   };
 
   const handleCookRecipe = async (recipe: RecipeSuggestion, idempotencyKey: string) => {
-    await runMutation(() => api.consumeBatch(recipe.food_ids, idempotencyKey, false));
+    await runMutation(() => api.consumeBatch(recipe.food_ids, idempotencyKey, false), result => result.items.map(item => ({ resource: 'food', operation: 'upsert' as const, item })));
   };
   const handleAddShoppingItem = async (name: string, quantity?: string) => {
-    await runMutation(() => api.addShoppingItem({ room_code: roomCode, name, quantity }));
+    await runMutation(() => api.addShoppingItem({ room_code: roomCode, name, quantity }), item => ({ resource: 'shopping', operation: 'upsert', item }));
   };
   const handleToggleShoppingItem = async (id: string, isBought: boolean) => {
-    try { await runMutation(() => api.toggleShoppingItem(id, isBought)); } catch { /* Error remains visible above the room. */ }
+    try { await runMutation(() => api.toggleShoppingItem(id, isBought), item => ({ resource: 'shopping', operation: 'upsert', item })); } catch { /* Error remains visible above the room. */ }
   };
   const handleDeleteShoppingItem = async (id: string) => {
-    try { await runMutation(() => api.deleteShoppingItem(id)); } catch { /* Error remains visible above the room. */ }
+    try { await runMutation(() => api.deleteShoppingItem(id), () => ({ resource: 'shopping', operation: 'delete', id, room_code: roomCode })); } catch { /* Error remains visible above the room. */ }
   };
 
   // Filter & Search Logic

@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { api } from './api';
+import type { RoomSyncDelta } from './roomSync';
 
 export function getSupabaseConfig() {
   const env = (import.meta as unknown as { env?: Record<string, string> }).env || {};
@@ -12,7 +13,7 @@ export function getSupabaseConfig() {
 
 export function createRealtimeSubscription(
   roomCode: string,
-  callbacks: { refresh: () => Promise<void>; transport: (mode: 'polling' | 'connected' | 'connecting') => void; error: (error: unknown) => void },
+  callbacks: { refresh: () => Promise<void>; transport: (mode: 'polling' | 'connected' | 'connecting') => void; error: (error: unknown) => void; delta?: (delta: RoomSyncDelta) => void },
   options?: { config?: ReturnType<typeof getSupabaseConfig>; clientFactory?: typeof createClient; getToken?: typeof api.getRealtimeToken }
 ) {
   const config = options?.config === undefined ? getSupabaseConfig() : options.config;
@@ -21,6 +22,7 @@ export function createRealtimeSubscription(
   let changeTimer: ReturnType<typeof setTimeout> | undefined;
   let connecting = false, channelGeneration = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  let channel: ReturnType<ReturnType<typeof createClient>['channel']> | undefined;
   const refresh = () => { if (!stopped && navigator.onLine) void callbacks.refresh(); };
   // Polling is explicitly degraded. The slow timer also updates time-based expiry.
   const polling = setInterval(() => { if (!subscribed) refresh(); }, 4000);
@@ -28,6 +30,21 @@ export function createRealtimeSubscription(
   const changed = () => {
     if (stopped || changeTimer) return;
     changeTimer = setTimeout(() => { changeTimer = undefined; refresh(); }, 30);
+  };
+  const isDelta = (value: unknown): value is RoomSyncDelta => {
+    if (!value || typeof value !== 'object') return false;
+    const delta = value as Record<string, unknown>;
+    const item = delta.item as Record<string, unknown> | undefined;
+    if (delta.resource !== 'food' && delta.resource !== 'shopping') return false;
+    if (delta.operation === 'delete') return typeof delta.id === 'string' && typeof delta.room_code === 'string';
+    return delta.operation === 'upsert' && !!item && typeof item.id === 'string' && typeof item.room_code === 'string';
+  };
+  const receiveDelta = (message: { payload?: unknown }) => {
+    if (stopped || !isDelta(message.payload)) return;
+    callbacks.delta?.(message.payload);
+    // Reconcile after the visible fast path. This also covers a race where the
+    // database invalidation arrived just before the client-published delta.
+    changed();
   };
   const fallback = (error?: unknown) => {
     if (stopped) return;
@@ -55,7 +72,7 @@ export function createRealtimeSubscription(
       if (stopped) return;
       if (!client.getChannels().length) {
         const generation = ++channelGeneration;
-        client.channel(`room-sync:${roomCode}`, { config: { private: true } })
+        channel = client.channel(`room-sync:${roomCode}`, { config: { private: true } })
           .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'room_sync_versions', filter: `room_code=eq.${roomCode}` }, changed)
           .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'room_sync_versions', filter: `room_code=eq.${roomCode}` }, changed)
           // C021: low-latency fast path (see supabase/realtime_broadcast.sql). The
@@ -63,6 +80,11 @@ export function createRealtimeSubscription(
           // if the broadcast RLS/extension is ever unavailable, sync still works,
           // just at the original (slower) WAL-based latency.
           .on('broadcast', { event: 'changed' }, changed)
+          // A mutation source sends a validated, room-scoped delta after its REST
+          // write succeeds. This avoids putting the visible peer update behind the
+          // production REST round trip; the server-triggered `changed` event above
+          // remains the source-of-truth reconciliation path.
+          .on('broadcast', { event: 'delta' }, receiveDelta)
           .subscribe(status => {
             if (stopped || generation !== channelGeneration) return;
             subscribed = status === 'SUBSCRIBED';
@@ -87,10 +109,20 @@ export function createRealtimeSubscription(
   document.addEventListener('visibilitychange', visible);
   callbacks.transport(config ? 'connecting' : 'polling');
   void connect();
-  return () => {
+  const stop = () => {
     stopped = true;
     clearInterval(polling); clearInterval(clock); clearTimeout(refreshTimer); clearTimeout(changeTimer); clearTimeout(reconnectTimer);
     window.removeEventListener('online', online); window.removeEventListener('offline', offline); document.removeEventListener('visibilitychange', visible);
     if (client) { void client.removeAllChannels().catch(() => {}); client.realtime.disconnect(); }
+  };
+  return {
+    stop,
+    async publish(delta: RoomSyncDelta) {
+      if (stopped || !subscribed || !channel || !isDelta(delta)) return false;
+      try {
+        const result = await channel.send({ type: 'broadcast', event: 'delta', payload: delta });
+        return result === 'ok';
+      } catch { return false; }
+    }
   };
 }
