@@ -29,6 +29,29 @@ Commit `3764701` (delta session/payload guards) was deployed to Production deplo
 **3515 ms** click-to-peer-visible. It confirms the guard deployment reached Production;
 it does not meet the latency target.
 
+## Final acceptance under the revised F5 target
+
+The operator revised F5 to <=5 seconds for foreground, connected use; this is recorded
+in `flow/03-prd.md` and `flow/05-contract.md`. Two live browser contexts on Production
+bundle `assets/index-UovJyhOX.js` both showed `Đã kết nối`.
+
+| Operation | Result observed in peer | Elapsed from source action |
+| --- | --- | ---: |
+| Add `C021 final regression marker` | Card appeared | 3964 ms |
+| Consume that marker | Active card disappeared | 3516 ms |
+| History | Consumed marker appeared in History | confirmed |
+
+After deleting the five prior probe foods and the marker as the final food, the peer
+showed zero active foods and no marker. Reloading that peer then restored its Realtime
+connection in 7483 ms and retained the authoritative empty snapshot. The reconnect
+duration is recorded separately: F5 constrains a successfully saved foreground change,
+not initial subscription startup.
+
+The tabs share the in-app browser's stored session, so this is two independent page
+contexts rather than two separately authenticated storage profiles. The controller and
+App suites cover the session-replacement/stale callback cases; no stronger live storage
+isolation is claimed. This evidence closes C-021 under the revised F5 requirement.
+
 The next SQL migration is prepared locally: the database trigger will publish a
 room-claim-fenced, sanitized `delta` at transaction commit. This avoids holding peer
 visibility behind the source HTTP response and its bounded push dispatch. It is not
