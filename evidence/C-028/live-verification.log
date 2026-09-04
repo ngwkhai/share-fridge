@@ -1,0 +1,55 @@
+=== C-028 Live Production Verification ===
+Target URL: https://sharefridge.vercel.app
+
+1. Checking /healthz:
+   Status: 200
+   Body: {
+  status: 'ok',
+  version: '1.0.0',
+  timestamp: '2026-09-04T11:34:07.738Z'
+}
+
+2. Checking /readyz:
+   Status: 200
+   Body: { status: 'ok', database: 'postgres' }
+
+3. Checking /api/config:
+   Status: 200
+   Body: {
+  google_client_id: '175412711513-uu1tbcc1f3ul29r0d9shj96plok6jjfp.apps.googleusercontent.com',
+  capabilities: { google: true, push: true, photos: true, realtime: true }
+}
+
+4. Checking /api/openapi.json:
+   Status: 200
+   OpenAPI version: 3.0.0
+   Total paths: 25
+
+5. Testing Live Room Creation & CRUD:
+   Create room status: 201
+   Add food status: 201
+
+6. Checking AI parse-voice:
+   AI voice status: 200
+   AI voice result: {
+  parsed: {
+    name: 'gà luộc',
+    quantity: '0.5 con',
+    compartment: 'FRIDGE_TOP',
+    container_tag: 'không có',
+    shelf_life_days: 2
+  },
+  confidence: 0.98,
+  source: 'gemini-3.1-flash-lite'
+}
+
+7. Checking AI suggest-recipes:
+   AI recipe status: 200
+   AI recipes count: 1
+
+8. Consuming food item:
+   Consume status: 200
+   Shopping items count: 1
+   Cleaned up test food and shopping items.
+
+=== All Live Verification Checks Passed on Production! ===

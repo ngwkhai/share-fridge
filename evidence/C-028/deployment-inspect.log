@@ -1,0 +1,26 @@
+Vercel CLI 59.11.2 (Node.js 24.12.0)
+Fetching deployment "sharefridge.vercel.app" in khaindhrt-9606s-projects
+> Fetched deployment "sharefridge-em1oyxal3-khaindhrt-9606s-projects.vercel.app" in khaindhrt-9606s-projects [556ms]
+
+  General
+
+    id		dpl_Apfbe52eAZuEBoNqyF1pU3ANAyRV
+    name	sharefridge
+    target	production
+    status	● Ready
+    url		https://sharefridge-em1oyxal3-khaindhrt-9606s-projects.vercel.app
+    created	Fri Sep 04 2026 18:31:22 GMT+0700 (Indochina Time) [3m ago]
+
+
+  Aliases
+
+    ╶ https://sharefridge.vercel.app
+    ╶ https://sharefridge-khaindhrt-9606s-projects.vercel.app
+    
+
+  Builds
+
+    ┌ .        [0ms]
+    └── λ api/index (16.82MB) [iad1]
+    
+

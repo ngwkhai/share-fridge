@@ -10,7 +10,4 @@ After all cards are done, append ONE line per project run:
 - 2026-09-02 (ShareFridge v3 - Senior UI/UX, 3D Gen AI Logo & Copy Cleanup): Hoàn thành 2 card mới (C-012, C-013) nâng cấp toàn diện Glassmorphism, Neon Ambient Glow, Floating Dock, Siri Multi-Ring Visualizer, tích hợp Logo 3D Gen AI và xóa sạch toàn bộ text thừa.
 - 2026-09-02 (ShareFridge v4 - White Dock, Room Creation Fix & SWR Cache): Hoàn thành 2 card mới (C-014, C-015) đổi Dock sang trắng, fix lỗi tạo phòng Serverless bằng cơ chế SWR Session Cache và Silent Auto Re-Sync, hiển thị Passcode trong Cài đặt và xóa ô Gemini Key thừa. Toàn bộ 17 tests passed.
 - 2026-09-03 (ShareFridge v5 - Local-First Storage, Nickname Display & Google Sign-In): Hoàn thành 2 card mới (C-016, C-017) dập tắt hoàn toàn hiện tượng dữ liệu chớp mất bằng Local-First Persistent Storage (foodCache), đưa Tên người dùng lên Header & Cài đặt, và tích hợp Google Sign-In. Toàn bộ 18 tests passed.
-
-
-
-
+- 2026-09-04 (ShareFridge v6 - Full Remediation Release, Security, Real PostgreSQL, Web Push, GIS, Gemini & Playwright Release Gates): Không bỏ qua cổng nào — Hoàn thành trọn vẹn 11 remediation cards (C-018 -> C-028) theo contract v2 với phòng chống chiếm phòng, PostgreSQL bền vững, GIS thật, Gemini 3.1 Flash-Lite thật, Web Push VAPID + Vercel Cron, tải ảnh giới hạn 100KB, toàn bộ 118 unit tests và 10 Playwright E2E/Contract tests pass 100% trên Production.
