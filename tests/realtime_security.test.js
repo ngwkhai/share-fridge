@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import { realtimeConfig, issueRealtimeToken } from '../server/realtime.js';
 const secret=crypto.randomBytes(48).toString('base64url');
 const jwt=payload=>{
@@ -20,4 +21,11 @@ test('room JWT is authenticated, signed, scoped and bounded by room session expi
   assert.equal(payload.role,'authenticated');assert.equal(payload.room_code,'721021');assert.equal(payload.sub,'room-id');assert.equal(payload.exp-payload.iat,300);assert.equal(Date.parse(token.expires_at),payload.exp*1000);
   assert.equal('nickname' in payload,false);assert.equal('passcode_hash' in payload,false);
   const short=issueRealtimeToken({id:'room-id'},{room_code:'721021',exp:now+60000},realtimeConfig(env),now);assert.ok(Date.parse(short.expires_at)<=now+60000);
+});
+test('private room broadcast policy permits a room-scoped client send as well as receive',()=>{
+  const sql=fs.readFileSync(new URL('../supabase/realtime_broadcast.sql',import.meta.url),'utf8');
+  assert.match(sql,/create policy room_broadcast_read on realtime\.messages for select to authenticated/i);
+  assert.match(sql,/create policy room_broadcast_send on realtime\.messages for insert to authenticated with check/i);
+  assert.match(sql,/realtime\.messages\.extension = 'broadcast'/i);
+  assert.match(sql,/realtime\.topic\(\) = 'room-sync:' \|\| .*room_code/i);
 });

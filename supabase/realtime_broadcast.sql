@@ -26,6 +26,15 @@ create policy room_broadcast_read on realtime.messages for select to authenticat
   realtime.messages.extension = 'broadcast'
   and realtime.topic() = 'room-sync:' || (nullif(current_setting('request.jwt.claims',true),'')::jsonb ->> 'room_code')
 );
+-- Client-originated deltas use channel.send(). Private-channel membership and
+-- receive permission are not enough: Supabase also checks INSERT for broadcast
+-- sends. Keep this identical room-claim fence so a room JWT cannot publish to
+-- another room's topic.
+drop policy if exists room_broadcast_send on realtime.messages;
+create policy room_broadcast_send on realtime.messages for insert to authenticated with check (
+  realtime.messages.extension = 'broadcast'
+  and realtime.topic() = 'room-sync:' || (nullif(current_setting('request.jwt.claims',true),'')::jsonb ->> 'room_code')
+);
 
 create or replace function sharefridge_private.bump_room_sync() returns trigger
 language plpgsql security definer set search_path = pg_catalog as $sync$
