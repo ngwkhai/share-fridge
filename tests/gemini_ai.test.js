@@ -34,7 +34,7 @@ test('Vietnamese extraction fixes actual preview half-kilo/7-day baseline, expli
 test('provider request uses structured schema, omits expired inventory, validates source and canonical owned IDs', async () => {
   let request;
   const result = await suggestRecipesWithGemini(inventory, '', 'fixture-key', { fetchImpl: async (url, options) => { request = { url, options, body: JSON.parse(options.body) }; return envelope([recipe]); } });
-  assert.equal(result.source, 'gemini-2.5-flash');
+  assert.equal(result.source, 'gemini-3.6-flash');
   assert.deepEqual(result.suggestions[0].food_ids, ['pork']);
   assert.equal(new URL(request.url).search, '');
   assert.equal(request.options.headers['x-goog-api-key'], 'fixture-key');
@@ -68,7 +68,7 @@ test('voice schema rejects invalid enums, numbers, bounds and keeps explicitly s
     assert.equal((await parseVoiceWithGemini('Thịt bò ngăn đông', 'fixture-key', provider(value))).source, 'heuristic');
   }
   const valid = await parseVoiceWithGemini('Thịt bò ngăn đông dùng trong 0 ngày', 'fixture-key', provider({ ...good, shelf_life_days: 14 }));
-  assert.equal(valid.source, 'gemini-2.5-flash'); assert.equal(valid.parsed.shelf_life_days, 0);
+  assert.equal(valid.source, 'gemini-3.6-flash'); assert.equal(valid.parsed.shelf_life_days, 0);
 });
 
 test('transport aborts stalled actual HTTP response without retry, bounds bytes and never logs provider secrets', async () => {

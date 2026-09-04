@@ -1,7 +1,9 @@
 import crypto from 'node:crypto';
 import { HttpError } from './http.js';
 
-const MODEL = 'gemini-2.5-flash';
+// gemini-2.5-flash returned 404 "no longer available to new users" for this
+// project's API key as of 2026-09-04; Google's own error pointed at this model.
+const MODEL = 'gemini-3.6-flash';
 const COMPARTMENTS = ['FREEZER', 'FRIDGE_TOP', 'FRIDGE_BOTTOM', 'CRISPER', 'DOOR'];
 const object = x => x !== null && typeof x === 'object' && !Array.isArray(x);
 const text = (x, max = 200, empty = false) => typeof x === 'string' && x.length <= max && (empty || x.trim().length > 0);

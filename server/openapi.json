@@ -4765,7 +4765,7 @@
           "source": {
             "type": "string",
             "enum": [
-              "gemini-2.5-flash",
+              "gemini-3.6-flash",
               "heuristic"
             ]
           }
@@ -4792,7 +4792,7 @@
           "source": {
             "type": "string",
             "enum": [
-              "gemini-2.5-flash",
+              "gemini-3.6-flash",
               "heuristic"
             ]
           }

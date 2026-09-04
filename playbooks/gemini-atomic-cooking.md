@@ -8,7 +8,8 @@ A provider JSON schema cannot prove that ingredient IDs belong to the current in
 
 ## Proven checks
 
-- Send `responseJsonSchema` with JSON MIME on the contracted `gemini-2.5-flash` generateContent route; validate the result locally as well. `finishReason` must be STOP. Provider errors and missing configuration return explicit heuristic source, never a fake provider pass. Conservative fallback returns no recipe for unrelated inventory such as yogurt alone.
+- **A configured key that still 404s is not a config problem — check whether the model itself got deprecated.** C-025/C-026's Gemini key (and a second, freshly-issued key) both silently fell back to `heuristic` for weeks; the deployed code never logs provider error bodies (see below), only a bounded `reason=http_error status=404`, so this looked identical to a bad key. Curling `generateContent` directly (bypassing the app) surfaced Google's real message: `"This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.6-flash..."`. `GET https://generativelanguage.googleapis.com/v1beta/models` with the same key lists every model actually available to it — check that FIRST when a configured key still fails, before assuming the key is bad. This project now uses `gemini-3.6-flash`.
+- Send `responseJsonSchema` with JSON MIME on the contracted generateContent route; validate the result locally as well. `finishReason` must be STOP. Provider errors and missing configuration return explicit heuristic source, never a fake provider pass. Conservative fallback returns no recipe for unrelated inventory such as yogurt alone.
 - Put the API key in `x-goog-api-key`, not a URL. Log only bounded reason codes and numeric statuses. The local transport test sends an error body containing a secret sentinel and confirms it is never logged.
 - Bound response bytes while reading the stream, not after `res.json()` allocates it. The transport test proves the 128 KiB limit cancels the reader. A real local stalled HTTP response proves the 8-second production deadline (50 ms in the fixture) aborts the request and does not retry.
 - Explicit Vietnamese shelf life must match the full number: an unbounded `\d{1,3}` search parses “1000 ngày” as “000 ngày.” Validate negative/fractional/out-of-range values and retain zero with `??`, not `||`. Quantity, packaging and storage must survive the rendered form, not only a parser unit test.
@@ -30,8 +31,8 @@ With a disposable TEST_DATABASE_URL:
 npm run test:ai-postgres
 ```
 
-These tests use a fixture provider transport. Deployed acceptance must independently observe `source: gemini-2.5-flash`, selected IDs, and committed PostgreSQL effects. The existence of a configured key is insufficient.
+These tests use a fixture provider transport. Deployed acceptance must independently observe `source: gemini-3.6-flash` (or whatever the current live model is — check `GET /v1beta/models` first, see above), selected IDs, and committed PostgreSQL effects. The existence of a configured key is insufficient.
 
-Primary references: [Gemini 2.5 Flash model](https://ai.google.dev/gemini-api/docs/models/gemini-2.5-flash), [generateContent reference](https://ai.google.dev/api/generate-content), [structured output](https://ai.google.dev/gemini-api/docs/structured-output).
+Primary references: [Gemini API models](https://ai.google.dev/gemini-api/docs/models), [generateContent reference](https://ai.google.dev/api/generate-content), [structured output](https://ai.google.dev/gemini-api/docs/structured-output).
 
-*Provenance: ShareFridge C-023, 2026-09-03. See evidence/C-023 for local HTTP, rendered React, and two-worker PostgreSQL results. No real-provider completion claim.*
+*Provenance: ShareFridge C-023, 2026-09-03. See evidence/C-023 for local HTTP, rendered React, and two-worker PostgreSQL results. Updated C-021/C-023 follow-up, 2026-09-04: real provider completion confirmed live on `gemini-3.6-flash` after the model-deprecation lesson above; see evidence/C-023/live-2026-09-04.md.*
