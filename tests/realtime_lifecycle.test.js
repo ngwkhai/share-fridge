@@ -22,13 +22,13 @@ test('actual realtime lifecycle refreshes token, recreates failed channels, and 
   const win=new Events(),doc=new Events();doc.visibilityState='visible';globalThis.window=win;globalThis.document=doc;Object.defineProperty(globalThis,'navigator',{value:{onLine:true},configurable:true});
   const clients=[],modes=[];let credentials=0,reads=0,errors=0;
   const factory=()=>{
-    const channels=[];const client={authCalls:[],disconnected:false,getChannels:()=>channels,realtime:{setAuth:async token=>client.authCalls.push(token),disconnect:()=>client.disconnected=true},removeAllChannels:async()=>{for(const ch of channels)ch.callback('CLOSED');channels.length=0;},channel:()=>{const ch={changes:[],on(_event,filter,callback){this.changes.push({filter,callback});return this;},subscribe(callback){this.callback=callback;return this;}};channels.push(ch);return ch;}};clients.push(client);return client;
+    const channels=[];const client={authCalls:[],disconnected:false,getChannels:()=>channels,realtime:{setAuth:async token=>client.authCalls.push(token),disconnect:()=>client.disconnected=true},removeAllChannels:async()=>{for(const ch of channels)ch.callback('CLOSED');channels.length=0;},channel:(_name,opts)=>{const ch={changes:[],privateConfig:opts,on(_event,filter,callback){this.changes.push({filter,callback});return this;},subscribe(callback){this.callback=callback;return this;}};channels.push(ch);return ch;}};clients.push(client);return client;
   };
   const runTimer=async predicate=>{const entry=[...timers].find(([,timer])=>predicate(timer));assert.ok(entry,'expected timer exists');if(!entry[1].interval)timers.delete(entry[0]);entry[1].fn();await flush();};
   let stop;
   try{
     stop=createRealtimeSubscription('721021',{refresh:async()=>reads++,transport:mode=>modes.push(mode),error:()=>errors++},{config:{url:'https://fixture.supabase.co',anonKey:'public-fixture'},clientFactory:factory,getToken:async()=>({token:`room-token-${++credentials}`,expires_at:new Date(Date.now()+300000).toISOString()})});
-    await flush();assert.equal(clients.length,1);const firstChannel=clients[0].getChannels()[0];assert.deepEqual(firstChannel.changes.map(x=>x.filter.event),['INSERT','UPDATE']);assert.ok(firstChannel.changes.every(x=>x.filter.table==='room_sync_versions'&&x.filter.filter==='room_code=eq.721021'));
+    await flush();assert.equal(clients.length,1);const firstChannel=clients[0].getChannels()[0];assert.deepEqual(firstChannel.changes.map(x=>x.filter.event),['INSERT','UPDATE','changed']);assert.ok(firstChannel.changes.slice(0,2).every(x=>x.filter.table==='room_sync_versions'&&x.filter.filter==='room_code=eq.721021'));assert.equal(firstChannel.privateConfig?.config?.private,true);
     firstChannel.callback('SUBSCRIBED');await flush();assert.equal(modes.at(-1),'connected');assert.equal(reads,1);
     await runTimer(t=>!t.interval&&t.delay>100000);assert.equal(credentials,2);assert.equal(clients.length,1);assert.equal(clients[0].authCalls.length,2);
     firstChannel.callback('CHANNEL_ERROR');assert.equal(modes.at(-1),'polling');assert.equal(clients[0].disconnected,true);

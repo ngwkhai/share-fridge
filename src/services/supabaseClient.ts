@@ -55,9 +55,14 @@ export function createRealtimeSubscription(
       if (stopped) return;
       if (!client.getChannels().length) {
         const generation = ++channelGeneration;
-        client.channel(`room-sync:${roomCode}`)
+        client.channel(`room-sync:${roomCode}`, { config: { private: true } })
           .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'room_sync_versions', filter: `room_code=eq.${roomCode}` }, changed)
           .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'room_sync_versions', filter: `room_code=eq.${roomCode}` }, changed)
+          // C021: low-latency fast path (see supabase/realtime_broadcast.sql). The
+          // postgres_changes listeners above stay as the reliability fallback --
+          // if the broadcast RLS/extension is ever unavailable, sync still works,
+          // just at the original (slower) WAL-based latency.
+          .on('broadcast', { event: 'changed' }, changed)
           .subscribe(status => {
             if (stopped || generation !== channelGeneration) return;
             subscribed = status === 'SUBSCRIBED';
