@@ -42,7 +42,7 @@ Người ở ghép phòng trọ dùng chung tủ lạnh cần một ứng dụng
 - **F2 (Visual Freshness & Expiry Filter):** As a user, I open the app, and I see color-coded badges (Red: ≤0d Expired, Amber: ≤2d Cook Urgently, Green: Fresh) with countdown days.
 - **F3 (Storage & Container Identification):** As a user, I view an item, and I see its exact compartment (Freezer, Fridge Top, Crisper) and visual tag (e.g. "Hộp Lock xanh", "Túi zip đỏ").
 - **F4 (Quick Consume / Mark as Cooked):** As a user, I tap "Đã nấu / Ăn xong", and I see the item instantly moved to history and optionally added to the shopping list with 1 tap.
-- **F5 (Real-time Roommate Sync):** As a user, I enter a 6-digit Room PIN, and I see my roommate's updates appear live within 500ms.
+- **F5 (Roommate Sync):** As a user, I join my room and see my roommate's saved food and shopping changes automatically within 5 seconds during normal connected use, with clear status when data may be stale.
 - **F6 (Camera Photo Capture):** As a user, I take a photo or attach a picture of my food container, and I see a compressed (<100KB) thumbnail on the card.
 - **F7 (Voice-to-Food Parsing):** As a user, I press the microphone button and speak a sentence in Vietnamese, and I see the name, compartment, container tag, and expiry auto-filled into the form.
 - **F8 (Smart AI Recipe Suggester):** As a user, I tap "Hôm nay ăn gì?", and I see 2-3 Vietnamese recipe ideas utilizing urgent items in my fridge with a 1-tap "Nấu món này" action.
@@ -69,4 +69,8 @@ Người ở ghép phòng trọ dùng chung tủ lạnh cần một ứng dụng
 - Thời gian nhập 1 món: **< 3 giây** (qua Voice) và **< 5 giây** (qua Form 1 chạm).
 - Tỷ lệ thực phẩm bỏ phí: Giảm từ ~4 món/tháng xuống **< 1 món/tháng** sau 2 tuần sử dụng.
 - Tỷ lệ nhận diện chính xác món đồ trong tủ: **100%** món đồ có tag vị trí hoặc ảnh chụp thực tế.
-- Tốc độ đồng bộ giữa 2 điện thoại: **< 500ms** khi có kết nối mạng.
+- Tốc độ đồng bộ giữa 2 điện thoại: **≤5 giây** khi cả hai ứng dụng đang mở ở foreground, có mạng ổn định và đã kết nối đồng bộ. Đo từ thao tác xác nhận lưu/thay đổi ở thiết bị A đến khi thay đổi hiển thị ở thiết bị B; bao gồm thời gian API và render, áp dụng cho thao tác được server chấp nhận. Ghi nhận riêng thao tác lỗi và mất kết nối, không coi chúng là đồng bộ thành công. Chế độ nền, ngoại tuyến hoặc polling suy giảm không có cam kết 5 giây; khi mở lại/kết nối lại phải lấy đầy đủ dữ liệu mới nhất, kể cả danh sách rỗng.
+
+### Điều chỉnh yêu cầu F5 — 2026-09-04
+
+Theo yêu cầu của operator, bỏ mục tiêu <500ms vì ứng dụng chia sẻ tủ lạnh không cần phản hồi ở mức dưới một giây. Mục tiêu ≤5 giây phù hợp việc cùng theo dõi đồ ăn và danh sách mua sắm; các mẫu Production đã quan sát mất khoảng 2,6–3,5 giây, chưa phải cam kết thống kê/SLA cho mọi mạng hoặc thiết bị. Ưu tiên giữ dữ liệu nhất quán, không mất thay đổi đã lưu, không tự khôi phục món đã xóa, và hiển thị trung thực trạng thái kết nối. Độ đúng dữ liệu, phân quyền phòng và phục hồi sau mất mạng vẫn là yêu cầu nghiệm thu.

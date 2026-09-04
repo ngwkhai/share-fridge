@@ -4,7 +4,9 @@ Each line is a loan: a gate the project knowingly did not close, with a concrete
 exposure and a condition that must be true before the loan is closed. See
 `CLAUDE.md`'s "Debt (deliberate gate-skips)" section for the protocol.
 
-- [ ] DEBT: C-021's realtime sync does not meet the PRD's `<500ms` target (F5:
+- [x] RESOLVED 2026-09-04 by operator-authorized requirement revision: F5 now targets <=5 seconds under stable connected foreground conditions, as recorded in `flow/03-prd.md`, `flow/05-contract.md` and `cards/C-021.md`. Version-verified observations of 2592–3515 ms fit that budget. The former <500ms requirement is retired; no claim is made that it was achieved. Correctness, isolated-session and reconnect acceptance remain separate obligations. The unpublished database delta migration is not required to resolve this debt. Historical investigation follows; earlier root-cause conclusions and simulated-network claims are qualified in `evidence/C-021/measured-acceptance-2026-09-04.md`.
+
+  Original DEBT: C-021's realtime sync does not meet the PRD's `<500ms` target (F5:
   "roommate's updates appear live within 500ms") — measured 1231-3169ms across 3
   reproducible runs against Production using two real browser contexts on the actual
   deployed Supabase Realtime channel (genuinely subscribed, not degraded polling); see

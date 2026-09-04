@@ -72,7 +72,7 @@ Khi thiếu cấu hình hợp lệ, ứng dụng hiển thị **Cập nhật đ�
 
 Cache chỉ phục vụ đọc dữ liệu cũ, không được POST lên API. Lỗi tải giữ snapshot cũ và cảnh báo; chưa có snapshot thì hiển thị chờ/thử lại. Ghi dữ liệu yêu cầu mạng và thành công từ máy chủ. Đăng xuất hoặc phiên 401 xóa cache của phòng hiện tại; phản hồi muộn không được khôi phục phiên. 403 không đăng xuất một phiên còn hợp lệ.
 
-Kiểm tra local bằng `npm test`, `TEST_DATABASE_URL=... npm run test:sync-postgres`, `npm run build`. Các kiểm tra này không thay cho nghiệm thu hai trình duyệt trên Supabase đã triển khai. Cần đo riêng độ trễ thêm/sửa/xóa/đã nấu và reconnect trên URL thật; polling không chứng minh mục tiêu dưới 500 ms.
+Kiểm tra local bằng `npm test`, `TEST_DATABASE_URL=... npm run test:sync-postgres`, `npm run build`. Các kiểm tra này không thay cho nghiệm thu hai trình duyệt trên Supabase đã triển khai. Theo yêu cầu F5 sửa ngày 2026-09-04, mục tiêu là ≤5 giây từ thao tác xác nhận thay đổi đến hiển thị ở thiết bị còn lại, khi cả hai ứng dụng ở foreground, mạng ổn định và đã kết nối đồng bộ. Ghi nhận thêm/sửa/xóa/đã nấu, phiên bản bundle và các lỗi trên URL thật; kiểm tra reconnect riêng. Polling suy giảm phải được báo rõ và không có cam kết thời gian này.
 
 
 ## Google Identity Services
