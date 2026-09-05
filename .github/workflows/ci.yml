@@ -1,10 +1,15 @@
 name: CI
 
 # main = deployable. This workflow is the gate that keeps that true.
-# NOTE (C-029): this repository currently has NO git remote, so this workflow has
-# never executed. It becomes a real gate only once the operator pushes to GitHub and
-# enables branch protection on main. Until then, the same checks must be run locally
-# before merging; see DEPLOY_GUIDE.md.
+# C-029 (2026-09-06): the remote now exists (github.com/ngwkhai/share-fridge) and this
+# workflow runs on every push to main and every PR targeting it. Branch protection makes
+# build-and-test a required check; see DEPLOY_GUIDE.md.
+#
+# The e2e steps are gated on the BASE_URL repository VARIABLE only. The `secrets` context
+# is NOT available in `if:` expressions - using it there makes the whole workflow file
+# invalid and GitHub refuses to schedule any job at all (zero jobs, no annotation).
+# Set BASE_URL as a repo variable to turn the Playwright steps on; the value itself may
+# still come from a secret of the same name via `env`.
 
 on:
   push:
@@ -59,11 +64,11 @@ jobs:
         SKIP_PROVIDER_TESTS_IF_NO_CREDENTIALS: 'true'
 
     - name: Install Playwright Browsers
-      if: ${{ vars.BASE_URL != '' || secrets.BASE_URL != '' }}
+      if: ${{ vars.BASE_URL != '' }}
       run: npx playwright install --with-deps chromium
 
     - name: Run Playwright tests
-      if: ${{ vars.BASE_URL != '' || secrets.BASE_URL != '' }}
+      if: ${{ vars.BASE_URL != '' }}
       run: npm run test:e2e
       env:
         BASE_URL: ${{ secrets.BASE_URL || vars.BASE_URL }}
