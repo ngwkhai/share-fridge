@@ -115,32 +115,79 @@ Nghiệm thu trên bản Production đã triển khai: từ thiết bị A, ch�
 Từ 2026-09-05, `main` là nhánh phát hành duy nhất. Mọi nhánh `codex/*` đã được merge và xóa;
 tag `archive/main-pre-v7` giữ con trỏ baseline cũ, tag `v1.0.0` đánh dấu bản C-018..C-028.
 
-### Tạo remote GitHub (thao tác của operator, một lần)
+### Tại sao Claude không tự làm được hai việc này
 
-Repo hiện không có remote nào, nên `.github/workflows/ci.yml` chưa từng chạy. Cho tới khi có
-remote, CI **không phải** là cổng và các kiểm tra phải chạy tay trước khi merge.
+Đã kiểm tra hết đường, ghi lại để không phải kiểm tra lại:
 
-Đã quét bí mật trên toàn bộ 54 commit trước khi khuyến nghị push: không có khóa thật nào trong
-lịch sử; `.env` được `.gitignore` chặn và chỉ `.env.example` được theo dõi. Kích thước pack 26,91 MiB.
+| Đường | Kết quả |
+|---|---|
+| Shell của Claude trên máy operator | VM Linux tách biệt (`Linux claude 6.8.0 aarch64`), HOME là `/sessions/...`, chỉ mount đúng thư mục ShareFridge. `/Users`, `~/.ssh`, `~/.config/gh`, config Vercel CLI đều KHÔNG tồn tại trong đó |
+| Credential GitHub trong container đám mây | `GH_TOKEN` là placeholder rỗng, gọi API trả "builtin injection failed" |
+| `github.com` từ shell máy operator | Tới được qua HTTPS (200), nhưng không có credential nào để xác thực |
+| SSH tới GitHub | DNS không phân giải được — egress chỉ cho HTTPS qua allowlist |
+| `api.vercel.com` | **Bị chặn từ CẢ HAI** môi trường Claude chạy được. Kể cả có token Vercel cũng không gọi được |
+
+Repo này cũng chưa từng có remote: không có mục `remote` trong git config, không có ref remote nào
+trong `packed-refs`, không có `FETCH_HEAD`, và reflog không có fetch/clone nào. Việc operator từng
+push được từ Terminal là đúng — nhưng đó là Terminal của máy Mac, nơi có SSH key và `gh` thật;
+shell của Claude không phải máy đó.
+
+### THỨ TỰ ĐÚNG — hai việc này nối tiếp, không song song
+
+Phát hiện quan trọng: dự án Vercel hiện **chưa nối với Git repo nào**. `.vercel/project.json` chỉ
+có `projectId`/`orgId`/`projectName`, và AUTO-LOG ghi mọi lần lên production đều bằng `vercel deploy`
+từ CLI (`dpl_6xsRDJERRVmjrWdoWLLS1pdJu5DG`, `dpl_Apfbe52eAZuEBoNqyF1pU3ANAyRV`).
+
+Nghĩa là **"Production Branch = main" chưa phải một thiết lập tồn tại** — nó chỉ xuất hiện sau khi
+nối repo GitHub vào dự án Vercel. Không thể làm việc 2 trước việc 1.
+
+### Bước 1 — Tạo repo và push (Terminal trên máy Mac, ~2 phút)
+
+Đã quét bí mật trên toàn bộ 54 commit: không có khóa thật nào trong lịch sử. An toàn để push.
+Pack 26,91 MiB.
 
 ```sh
-# 1. Tạo repo PRIVATE trên github.com (đặt tên share-fridge). Không tạo README/gitignore.
-# 2. Từ thư mục dự án trên máy Mac:
-git remote add origin git@github.com:<tài-khoản>/share-fridge.git
-git push -u origin main
+cd ~/Documents/Projects/ShareFridge
+
+# Nếu đã có gh CLI:
+gh repo create share-fridge --private --source=. --remote=origin --push
 git push origin --tags
 
-# 3. Trên GitHub: Settings -> Branches -> Add branch protection rule cho `main`
-#    - Require a pull request before merging
-#    - Require status checks to pass -> chọn "build-and-test"
-#    - Do not allow bypassing the above settings
+# Nếu KHÔNG có gh: tạo repo private tên share-fridge trên github.com
+# (không tick README/gitignore/license), rồi:
+#   git remote add origin git@github.com:<tài-khoản>/share-fridge.git
+#   git push -u origin main && git push origin --tags
 ```
 
-Sau bước 3, chạy `bash .claude/skills/flow/runner/flow.sh check C-029` và đóng hai mục Verify còn
-treo: PR thử nghiệm phải báo đỏ khi test hỏng, và Vercel Production Branch phải trỏ về `main`.
+Kiểm chứng ngay:
+```sh
+git remote -v                       # phải thấy origin
+git ls-remote --heads origin main   # phải thấy SHA của main
+```
 
-**Giữ repo ở chế độ private.** `evidence/` chứa ảnh chụp màn hình và log của môi trường thật; chúng
-đã được kiểm tra là không lộ token, nhưng vẫn là dữ liệu vận hành nội bộ.
+Trên github.com: **Settings → Branches → Add branch protection rule** cho `main` —
+Require a pull request before merging, Require status checks to pass (chọn `build-and-test`),
+Do not allow bypassing.
+
+### Bước 2 — Nối repo vào Vercel rồi đặt Production Branch
+
+Vercel Dashboard → project `sharefridge` → **Settings → Git → Connect Git Repository** → chọn
+`share-fridge` vừa tạo. Sau khi nối, mục **Production Branch** mới hiện ra — đặt thành `main`.
+
+Lưu ý thay đổi hành vi: từ lúc nối, `git push origin main` sẽ TỰ ĐỘNG deploy production. Đây chính
+là điều card C-029 muốn ("main = deployable"), nhưng nó nghĩa là từ nay không push thẳng lên main
+nữa — đi qua PR, để branch protection và CI làm cổng.
+
+Kiểm chứng: push một commit nhỏ lên main, xác nhận Vercel sinh deployment mới có nguồn là commit đó,
+và `curl https://sharefridge.vercel.app/healthz` vẫn trả 200.
+
+### Bước 3 — Đóng C-029
+
+```sh
+npm test && npx tsc --noEmit && npm run build   # build phải chạy trên Mac
+bash .claude/skills/flow/runner/flow.sh check C-029
+```
+Rồi tick hai mục Verify còn treo và dán bằng chứng vào `## Evidence`.
 
 ### Chạy kiểm tra tay khi chưa có CI
 
