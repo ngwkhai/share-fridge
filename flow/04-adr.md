@@ -25,3 +25,46 @@
 - **Không tự dựng Server OCR hóa đơn:** Người đi chợ dân sinh không có hóa đơn in; chỉ cần nhập Voice 1 câu là xong.
 - **Không tích hợp cổng thanh toán / Chia tiền đi chợ:** Để các app chuyên dụng như MoMo/Splitwise phụ trách; ShareFridge tập trung 100% vào quản lý kho thực phẩm và chống lãng phí.
 
+
+---
+
+## Revision v7 — Store distribution (2026-09-05)
+
+Authored in work mode after the operator approved the release dossier. Decision 3 above
+(Mobile Platform) chose Web PWA and REJECTED native on the grounds that store review was
+"phức tạp". That reasoning was correct for its budget (2 weekends, 2 known users) and it
+delivered a working product. The goal has since changed — from "2 people who know each
+other" to "strangers who find the app themselves" — so the decision is overridden here
+explicitly rather than silently drifted away from.
+
+| # | Quyết định | Lý do (Why) | Giải pháp bị từ chối & Lý do (Rejected) |
+|---|---|---|---|
+| 8 | **Distribution channel:** giữ nguyên PWA, BỔ SUNG Trusted Web Activity làm kênh phát hành lên Google Play. Không viết lại native, không dùng Capacitor ở pha này. | TWA không phải "đi native" — nó là lớp vỏ phân phối cho đúng PWA hiện có, chạy bằng chính Chrome trên máy người dùng. Toàn bộ 5.620 dòng code, 25 endpoint, contract và bộ test giữ nguyên không đổi một dòng. Lợi thế quyết định: sửa lỗi nội dung web KHÔNG cần qua review của Google — deploy là người dùng có ngay. | **Capacitor cho cả hai store:** mạnh hơn về lâu dài (có API native thật, cần để qua Guideline 4.2 của Apple) nhưng đòi máy Mac, 99 USD/năm và một tầng build mới, trong khi đường găng đang là closed testing. **Viết lại native/React Native:** vứt bỏ tài sản đã có mà không gỡ được ràng buộc thật nào. |
+| 9 | **Platform boundary:** gom mọi code phụ thuộc nền tảng (camera, push, share, haptics) vào `src/platform/` sau một interface duy nhất, triển khai bản web ngay ở pha này. | Giữ đường thoát sang Capacitor cho iOS mà không phải mổ lại `App.tsx`. Chi phí bây giờ ~nửa ngày; chi phí nếu bỏ qua ~một tuần. | Để rải rác lời gọi nền tảng trong component như hiện tại: biến TWA hôm nay thành cái bẫy khóa nền tảng của ngày mai. |
+| 10 | **Service tier:** nâng Supabase lên Pro trước khi mở closed testing; đánh giá lại bậc Vercel. | Supabase free tự tạm dừng project sau 7 ngày không hoạt động — nếu xảy ra giữa kỳ 14 ngày closed testing thì mất trắng cả chu kỳ. Vercel Hobby giới hạn dùng phi thương mại theo fair-use, chỉ giữ log 1 giờ và không có cảnh báo chi tiêu. | Ở lại free tier: đặt một sản phẩm có nghĩa vụ lên nền tảng không cam kết nghĩa vụ nào. |
+
+### Cái giá của quyết định 8, nói thẳng
+
+Người dùng iPhone sẽ KHÔNG tìm thấy ShareFridge trên App Store. Họ vẫn dùng được qua trình
+duyệt nhưng chịu hai hạn chế thật của PWA trên iOS: Safari có thể xóa dữ liệu cache sau 7 ngày
+không mở app, và thông báo đẩy chỉ hoạt động sau khi người dùng tự tay "Thêm vào Màn hình chính".
+Ở thị trường Việt Nam, Android chiếm đa số nên đây là đánh đổi hợp lý — nhưng nó là đánh đổi,
+không phải bữa trưa miễn phí.
+
+### Điều kiện đảo ngược quyết định 8
+
+Chuyển sang Capacitor khi MỘT trong ba điều sau đúng:
+
+- Trên 25% yêu cầu hỗ trợ đến từ người dùng iPhone không cài được app;
+- Cần một khả năng web không có: widget màn hình chính, quét mã vạch tốc độ cao, chạy nền thật;
+- Có doanh thu hoặc lý do đủ mạnh để chi 99 USD/năm cộng một máy Mac.
+
+## NOT doing in v7 (and why it's safe to skip)
+
+- **Không nộp App Store ở pha này:** đường găng là closed testing của Play; thêm một store thứ hai
+  với ràng buộc phần cứng (Mac) và Guideline 4.2 sẽ kéo dài pha này thêm ít nhất 4 tuần mà không
+  mở thêm thị trường chính (Android chiếm đa số ở Việt Nam).
+- **Không làm monetization / gói trả phí:** chưa có bằng chứng giữ chân; tính tiền trước khi biết
+  người lạ có ở lại hay không là tối ưu sai thứ tự.
+- **Không làm đa ngôn ngữ:** thị trường mục tiêu là người ở trọ Việt Nam; i18n là chi phí không
+  đổi lấy lượt cài nào ở pha này.

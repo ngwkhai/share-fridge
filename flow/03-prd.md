@@ -74,3 +74,60 @@ Người ở ghép phòng trọ dùng chung tủ lạnh cần một ứng dụng
 ### Điều chỉnh yêu cầu F5 — 2026-09-04
 
 Theo yêu cầu của operator, bỏ mục tiêu <500ms vì ứng dụng chia sẻ tủ lạnh không cần phản hồi ở mức dưới một giây. Mục tiêu ≤5 giây phù hợp việc cùng theo dõi đồ ăn và danh sách mua sắm; các mẫu Production đã quan sát mất khoảng 2,6–3,5 giây, chưa phải cam kết thống kê/SLA cho mọi mạng hoặc thiết bị. Ưu tiên giữ dữ liệu nhất quán, không mất thay đổi đã lưu, không tự khôi phục món đã xóa, và hiển thị trung thực trạng thái kết nối. Độ đúng dữ liệu, phân quyền phòng và phục hồi sau mất mạng vẫn là yêu cầu nghiệm thu.
+
+---
+
+## Bổ sung v7 — Phát hành công khai lên CH Play (2026-09-05)
+
+### Thay đổi đối tượng người dùng
+
+v1–v6 phục vụ đúng 2 người đã biết nhau, nhận link qua Zalo. v7 bổ sung một persona thứ hai
+mà toàn bộ thiết kế hiện tại chưa tính đến:
+
+- **Persona mới — "người lạ trên CH Play":** tìm thấy app qua tìm kiếm hoặc gợi ý, không có ai
+  giải thích, không có ngữ cảnh về khái niệm "mã phòng". Đánh giá app trong 30 giây đầu và
+  bỏ đi không để lại lời nào — hoặc để lại 1 sao.
+
+### Yêu cầu phi chức năng bổ sung
+
+- **Khởi động:** LCP dưới 2,5 giây trên mạng 4G ở URL production; Lighthouse mobile Performance ≥ 90.
+- **Onboarding:** người chưa từng thấy app tự tạo phòng và thêm một món trong dưới 3 phút,
+  không được hướng dẫn.
+- **Khôi phục:** mọi đường vào có mật khẩu phải có đường lấy lại. Quên passcode không được
+  dẫn đến mất dữ liệu vĩnh viễn.
+- **Ổn định:** tỉ lệ phiên không crash ≥ 99,5%.
+- **Xóa dữ liệu:** người dùng xóa được toàn bộ dữ liệu của mình, từ trong app và từ một URL web
+  độc lập không cần cài app.
+- **Đồng ý:** mọi mục đích xử lý dữ liệu được đồng ý riêng biệt; từ chối bất kỳ mục nào vẫn
+  dùng được chức năng cốt lõi.
+- **Vận hành:** lỗi production được ghi nhận và cảnh báo trong vòng 5 phút mà không cần
+  người dùng báo.
+
+### Chỉ số thành công bổ sung (số, không phải cảm tính)
+
+Các chỉ số v1 (dưới 5 giây/món, dưới 1 món bỏ phí/tháng) giữ nguyên. Bổ sung nhóm chỉ số
+phân phối, đo trong 30 ngày đầu sau khi mở production:
+
+- **Tỉ lệ phòng có từ 2 thành viên trở lên: ≥ 55%.** Đây là chỉ số bắc cầu quan trọng nhất
+  của sản phẩm — ShareFridge dùng một mình thì vô nghĩa, toàn bộ giá trị nằm ở việc mời được
+  người thứ hai. Chỉ số này thấp nghĩa là vấn đề ở luồng mời, không phải ở tính năng.
+- Giữ chân D1 ≥ 40%, D7 ≥ 20%.
+- Số món tạo mỗi tuần trên mỗi phòng hoạt động: ≥ 5. Dưới ngưỡng này nghĩa là rào cản nhập
+  liệu (pain point P5) vẫn chưa được giải quyết cho người lạ.
+- Tỉ lệ phiên không crash ≥ 99,5%.
+- Tỉ lệ gỡ cài trong 7 ngày ≤ 40%.
+- Đánh giá trung bình trên CH Play ≥ 4,0.
+
+### Ràng buộc lịch trình không rút ngắn được bằng kỹ thuật
+
+Tài khoản Google Play cá nhân mở sau 13.11.2023 phải có ít nhất 12 người thử nghiệm giữ trạng
+thái opt-in LIÊN TỤC trong 14 ngày trước khi được nộp đơn xin lên production; Google duyệt đơn
+trong khoảng 7 ngày. Đồng hồ 14 ngày chạy theo thời gian tester opt-in, KHÔNG theo chất lượng
+bản build — do đó bản AAB tối thiểu phải lên kênh closed sớm nhất có thể, và các card chất
+lượng chạy song song trong lúc đồng hồ đếm.
+
+### Pain chưa xử lý trong v7
+
+- Người dùng iPhone không có app trên App Store (đánh đổi có ý thức, ADR quyết định 8).
+- Chi phí Gemini theo mức dùng chưa có mô hình doanh thu bù lại — được kiểm soát bằng trần
+  chi phí (F17) chứ không phải bằng doanh thu.

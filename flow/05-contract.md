@@ -111,3 +111,93 @@ C-021 internal synchronization amendment: maintain `room_sync_versions` with roo
 C-024 notification amendment before implementation: room mutations may include optional `X-Push-Subscriber-Id`, the opaque ID returned by subscription registration. Validate that it belongs to the authenticated room before excluding only that device from roommate-change delivery; it never substitutes for the room token. Store device identity per room and clear it across logout/room changes. Mutation data and private notification outbox entries commit atomically; batch cooking and replay create at most one event for an operation. Version subscriptions so expired-endpoint cleanup cannot delete a newly renewed registration. Delivery records have unique event/recipient identity, bounded leases, attempt ownership and durable retries. No client grants on outbox/delivery tables. A provider 2xx confirms acceptance only; actual receipt needs device evidence. A process failure after provider acceptance but before recording it can cause redelivery; stable event IDs, notification tags and provider topics reduce visible duplicates without promising exactly-once delivery. Cron success reflects the dispatch result, pending counts retryable queued deliveries, and sent counts accepted deliveries. Expiry events use the Asia/Ho_Chi_Minh calendar day and are not created before 16:30; Vercel schedule is 09:30 UTC, with production-only execution and plan precision verified at live acceptance.
 
 F1/F2/F3/F4 map to foods CRUD/edit/consume and expiry. F5 maps to room/realtime/persistence. F6 maps to photos/storage. F7 maps to parse-voice. F8 maps to suggestions/consume-batch. F9 maps to notifications/cron/worker with 16:30 Asia/Ho_Chi_Minh. F10 maps to shopping CRUD/move. Every provider/live gate needs actual provider/deployed evidence; local fixtures never close those gates.
+
+---
+
+# Interface Contract, store-release v3 (2026-09-05)
+
+## Gate — authored in work mode
+- [x] Store-release scope authorized by the operator (release dossier approved 2026-09-05).
+- [x] Every new endpoint specifies request, response and auth.
+- [x] Deletion semantics are specified as destructive-and-final, never soft-hide.
+- [x] Legal/consent obligations are contract-level, not UI-level afterthoughts.
+
+This revision is ADDITIVE to v2. No v2 shape is changed. Cards implement these routes
+incrementally; the spec lands WITH the API per CLAUDE.md. `/api/openapi.json` must show each
+route with correct schemas as its card completes.
+
+## New endpoints
+
+| Method | Path | Auth | Request shape | Response shape |
+|---|---|---|---|---|
+| DELETE | `/api/rooms/:code` | matching room token + passcode re-entry | `{passcode:string,confirm:"XOA"}` | `{success:true,deleted:{foods:number,shopping_items:number,history:number,push_subscriptions:number,photos:number}}`; 401 wrong passcode, 403 foreign room |
+| DELETE | `/api/auth/account` | valid room token + Google identity token | `{identity_token:string,confirm:"XOA"}` | `{success:true,rooms_deleted:number}`; deletes every room this Google `sub` solely owns, unlinks the identity, revokes sessions |
+| POST | `/api/account/deletion-request` | public/rate-limit | `{code:string,passcode:string,confirm:"XOA"}` | `{success:true,deleted:{...}}`; the app-independent web path Google Play requires; identical destructive semantics, no session needed |
+| GET | `/api/consent` | room token | none | `ConsentState` |
+| PUT | `/api/consent` | room token | `{ai_processing?:boolean,push_notifications?:boolean,photo_storage?:boolean}` | `ConsentState`; partial update, each purpose independent |
+| GET | `/api/bootstrap` | room token | `?room_code=string` | `{room:RoomDetail,foods:FoodItem[],shopping_items:ShoppingItem[],consent:ConsentState,server_time:string}`; one round-trip replacement for the parallel cold-start calls |
+
+## New shapes
+
+```typescript
+interface ConsentPurpose { granted:boolean; decided_at:string|null }
+interface ConsentState {
+  room_code:string;
+  ai_processing:ConsentPurpose;      // gửi transcript + tên món sang Google Gemini (chuyển dữ liệu xuyên biên giới)
+  push_notifications:ConsentPurpose; // đăng ký Web Push, gửi qua FCM
+  photo_storage:ConsentPurpose;      // lưu ảnh thực phẩm trên Supabase Storage
+  policy_version:string;             // phiên bản chính sách quyền riêng tư người dùng đã đồng ý
+}
+```
+
+## Deletion semantics (binding)
+
+Deletion is destructive and final. There is no soft-delete, no tombstone that still holds
+personal data, and no "deleted" flag that leaves rows readable. A successful delete means:
+every `foods`, `shopping_items`, history, `room_sync_versions`, `push_subscriptions`,
+`push_events` and `push_deliveries` row for that room is gone from PostgreSQL, AND every
+object under that room's prefix is gone from the `food-photos` Storage bucket. DB rows and
+Storage objects are removed under the room asset lock defined in the C-025 amendment;
+Storage I/O stays outside the SQL transaction, and any object that fails to delete stays
+tracked in the existing `pending_delete` path so the authenticated cron retries it — a
+partial Storage failure must not report `success:true` for photos it did not remove.
+
+`confirm:"XOA"` is a literal typed by the user, not a checkbox. Deletion is never reachable
+from a single tap. Rate limits apply to `/api/account/deletion-request` exactly as to
+join-room, because it accepts a room code and passcode from the public internet and is
+therefore an enumeration surface.
+
+## Consent semantics (binding, Luật 91/2025/QH15)
+
+Each purpose is consented separately and stored server-side with a timestamp and the policy
+version — localStorage alone is not a record. Absence of a decision is NOT consent: with
+`ai_processing.granted` false or undecided, `/api/ai/parse-voice` and `/api/ai/suggest-recipes`
+return 403 `CONSENT_REQUIRED` rather than silently calling the provider. Refusing any purpose
+must leave the core product usable: manual entry, expiry tracking, room sync and the shopping
+list never depend on consent. Consent is revocable at any time from Settings, and revoking
+`push_notifications` deletes that room's subscriptions.
+
+## Access-recovery semantics
+
+Room membership may additionally be established by a verified Google identity that was bound
+to the room at creation, without the passcode. This is a SECOND path to the same membership,
+never a bypass of room isolation: the binding is recorded at create time from a verified
+`sub`, and recovery requires a freshly verified identity token whose `sub` matches. It does
+not weaken the C-018 room-takeover protections, and it never reveals whether a given room code
+exists to an identity that is not bound to it.
+
+## Anti-enumeration semantics
+
+Responses for a room code that exists and one that does not must be indistinguishable in
+status, body and timing on the public auth surfaces (`join-room`, `deletion-request`).
+Per-room lockout with increasing backoff applies in addition to the existing per-IP limits,
+because a per-IP limit alone does not stop a distributed passcode sweep against one room.
+New rooms take a six-digit passcode; existing four-digit passcodes keep working.
+
+## Bootstrap semantics
+
+`/api/bootstrap` is a read-only aggregate of routes that already exist. It introduces no new
+authority: the same room-token check, the same room scoping, the same authoritative-empty-list
+rule. It exists solely to remove cold-start round-trips and MUST NOT become a write path or a
+place where a partial failure returns a partial success — if any component fails, the whole
+call fails, and the client falls back to the individual v2 endpoints.

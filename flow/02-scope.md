@@ -79,3 +79,68 @@ When a C feature is the real need, three honest paths:
 **GO** — Phạm vi v1 hoàn chỉnh gồm 6 tính năng Grade A và 4 tính năng Grade B (tận dụng Web Speech API, Gemini Flash và Supabase BaaS). Giải quyết triệt để toàn bộ 5 pain points và đáp ứng chính xác yêu cầu mở rộng của người dùng.
 
 
+
+---
+
+# Stage 02 — Scope revision v7: phát hành lên CH Play (2026-09-05)
+
+Authored in work mode. Operator signed off on the release dossier before this revision was
+written; the scope pause of the work-mode protocol is therefore satisfied by that approval.
+
+## Gate — check ALL before `/flow next`
+- [x] Every feature below has an IMPACT (H/M/L with the business reason) AND a grade (A/B/C)
+- [x] No L-impact feature above grade A survives in v7
+- [x] The suggested-features section was actually considered (each suggestion has an in/out decision)
+- [x] fit(grades, budget) holds — every C in scope is justified as path 1, 2, or 3
+- [x] If the product IS a C feature: it is FIRST in build order, and its sibling C features are on the cut list
+- [x] The cut list is written (what I am NOT building in v7)
+- [x] GO / KILL decision is written below
+- [x] No FILL placeholders remain in this file
+
+## Time budget
+
+2–3 tháng làm nghiêm túc (operator xác nhận). Đường găng KHÔNG phải là code: quy định
+12 tester opt-in liên tục 14 ngày của Google Play cho tài khoản cá nhân mở sau 13.11.2023.
+
+## Sự thay đổi bối cảnh khiến v7 tồn tại
+
+v1–v6 tối ưu cho đúng 2 người dùng đã biết nhau, nhận link qua Zalo. v7 đổi đối tượng sang
+người lạ tự tìm thấy app trên CH Play. Người lạ không có ai giải thích "mã phòng 6 số" là gì,
+không tha thứ cho LCP 4,9 giây, và sẽ để lại 1 sao khi quên passcode mà không có đường lấy lại.
+Phần lớn khối lượng v7 vì thế KHÔNG phải là tính năng mới — mà là nghĩa vụ pháp lý, nghĩa vụ
+vận hành, và chất lượng đủ cho người không có ngữ cảnh.
+
+## Features in v7 (each with impact AND grade)
+
+- **F11: Xóa phòng & xóa tài khoản có cascade thật** — **Impact H** (Điều kiện cần: Google Play bắt buộc app cho tạo tài khoản phải có đường xóa trong app VÀ một URL web độc lập; Luật 91/2025/QH15 hiệu lực 01.01.2026 biến quyền xóa thành nghĩa vụ pháp lý. Không có = không được duyệt) — **Grade A** (CRUD + transaction cascade + dọn Storage).
+- **F12: Trang pháp lý công khai (Quyền riêng tư, Điều khoản, Hỗ trợ)** — **Impact H** (Điều kiện cần để duyệt; đồng thời là nguồn duy nhất sinh ra biểu mẫu Data safety) — **Grade A** (trang tĩnh + định tuyến).
+- **F13: Màn hình đồng ý xử lý dữ liệu theo PDPL** — **Impact H** (Nghĩa vụ pháp lý: app gửi nội dung giọng nói và danh sách thực phẩm sang Google Gemini — đây là chuyển dữ liệu xuyên biên giới, phải có đồng ý riêng cho từng mục đích, không chấp nhận ô tích sẵn) — **Grade A** (UI + lưu trạng thái phía server).
+- **F14: Khôi phục truy cập phòng khi quên passcode hoặc mất thiết bị** — **Impact H** (Lỗ hổng sản phẩm nguy hiểm nhất còn lại: hiện tại quên passcode 4 số = mất toàn bộ dữ liệu vĩnh viễn. Với người lạ, đây chính là nội dung review 1 sao đầu tiên) — **Grade B** (tận dụng hạ tầng Google Identity đã có từ C-022, path 2).
+- **F15: Onboarding, trạng thái rỗng và thông báo lỗi cho người chưa biết gì** — **Impact H** (Acquisition: màn hình đầu hiện yêu cầu "mã phòng 6 số", một khái niệm chỉ tồn tại trong đầu người đã hiểu sản phẩm) — **Grade A** (UI theo DESIGN.md).
+- **F16: Hiệu năng — LCP từ 4,9s xuống dưới 2,5s** — **Impact H** (Retention: người dùng bỏ app ở giây thứ 3. Nguyên nhân gốc đã được đo và ghi trong DEBT.md: `GET /api/foods` mất 0,8–1,3s/lần, độc lập với tầng realtime) — **Grade B** (gộp bootstrap + đối chiếu region, path 2 — không tự dựng CDN/cache layer).
+- **F17: Trần chi phí và chống lạm dụng endpoint AI** — **Impact M** (Vận hành: với 2 người, một API key dùng chung là hợp lý; với người lạ, `/api/ai/*` là hai vòi tiền mở sẵn) — **Grade A** (hạn mức + cache + hạ cấp về heuristic đã có sẵn).
+- **F18: Quan trắc lỗi, uptime và cảnh báo chi phí** — **Impact M** (Vận hành: hiện tại nếu app hỏng lúc 3 giờ sáng, bạn biết khi có người nhắn tin — mà người lạ thì không nhắn, họ gỡ cài) — **Grade A** (SDK bên thứ ba, không tự dựng).
+- **F19: Đóng gói TWA và hồ sơ Play Console** — **Impact H** (Chính là kênh phân phối — không có nó thì toàn bộ v7 vô nghĩa) — **Grade B** (Bubblewrap + Digital Asset Links + ký số; có bẫy targetSdk đã biết trước).
+- **F20: Rà soát an ninh chống liệt kê và dò passcode** — **Impact M** (Bảo vệ người dùng dưới giả định có kẻ tấn công có động cơ: không gian PIN 10^6 + passcode 10^4, kẻ tấn công liệt kê PIN tồn tại trước rồi mới dò passcode) — **Grade B** (khóa theo phòng + thời gian phản hồi hằng số).
+
+## Suggested features (impact-first — proposed, not decided)
+
+- **S5: Widget màn hình chính Android hiển thị món sắp hết hạn** — **Impact M** — **Grade C** — **OUT** (TWA không truy cập được widget API; sẽ kéo theo Capacitor. Ứng viên cho v8 nếu quyết định 8 bị đảo).
+- **S6: Chia sẻ mã phòng qua Zalo với nội dung soạn sẵn** — **Impact H** (đây là bề mặt mời — chỉ số bắc cầu quan trọng nhất của sản phẩm là tỉ lệ phòng có ≥2 thành viên; app một mình dùng thì vô nghĩa) — **Grade A** — **IN** (gộp vào F15).
+- **S7: Gói trả phí / mở khóa số phòng không giới hạn** — **Impact M** — **Grade B** — **OUT** (chưa có bằng chứng giữ chân; tính tiền trước khi biết người lạ có ở lại hay không là tối ưu sai thứ tự).
+
+## Cut list (NOT in v7 — deferred, not deleted)
+
+- Nộp App Store / bọc Capacitor cho iOS — xem điều kiện đảo ngược ở ADR quyết định 8.
+- Widget màn hình chính, quét mã vạch tốc độ cao, chạy nền thật — đều đòi lớp native.
+- Monetization và gói trả phí.
+- Đa ngôn ngữ / i18n.
+- Chia tiền đi chợ, OCR hóa đơn, barcode — giữ nguyên trạng thái cut từ v1.
+
+## Decision
+
+**GO** — 10 tính năng: 6 Grade A, 4 Grade B, không có Grade C nào sống sót trong v7.
+Không có tính năng L-impact nào trong phạm vi. Đường găng là quy định của Google chứ không
+phải khối lượng code, nên chiến thuật lịch trình là đưa AAB tối thiểu lên kênh closed sớm nhất
+có thể (tuần 3) để đồng hồ 14 ngày chạy SONG SONG với F14–F16 và F20 — rút ngắn khoảng 3 tuần
+so với cách làm tuần tự.
