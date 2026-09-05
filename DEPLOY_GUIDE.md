@@ -109,3 +109,57 @@ Nghiệm thu trên bản Production đã triển khai, có `VAPID_*`/`CRON_SECRE
 6. Dọn ảnh mồ côi: cùng `GET /api/cron/expiry` (đã xác thực `CRON_SECRET` ở mục C-024) gọi thêm bounded cleanup cho các ảnh `staged` quá hạn ân hạn (1 giờ) chưa từng gắn vào món, và các ảnh `pending_delete` (đã tháo khỏi món/bị thay ảnh khác) — tự động, không cần thao tác thủ công. Có thể gọi tay: `node scripts/backfill-photos.js` (mặc định dry-run, thêm `--apply` để chạy thật) để chuyển các dòng `photo_url` base64 cũ (trước C025) sang `storage_path` thật; không bao giờ xóa `photo_url` cũ kể cả khi thành công, và có thể chạy lại an toàn (bỏ qua dòng đã có `storage_path`).
 
 Nghiệm thu trên bản Production đã triển khai: từ thiết bị A, chụp/chọn ảnh thật, lưu món; xác nhận `GET /api/foods` trả `photo_url` là URL Storage đã ký (khác domain ứng dụng), tải được ảnh. Từ thiết bị B trong cùng phòng, xác nhận thấy đúng ảnh đó. Xóa món, đợi cron chạy (hoặc gọi tay có `CRON_SECRET`), xác nhận object trong Storage bucket không còn. Cài đặt PWA trên điện thoại thật và xác nhận icon màn hình chính đúng ảnh logo (không phải icon mặc định/vỡ). Không coi ảnh preview cục bộ (chưa upload) là bằng chứng; chỉ tính khi đọc lại được từ Storage qua signed URL thật.
+
+## C-029 — Nhánh phát hành, remote GitHub và CI làm cổng
+
+Từ 2026-09-05, `main` là nhánh phát hành duy nhất. Mọi nhánh `codex/*` đã được merge và xóa;
+tag `archive/main-pre-v7` giữ con trỏ baseline cũ, tag `v1.0.0` đánh dấu bản C-018..C-028.
+
+### Tạo remote GitHub (thao tác của operator, một lần)
+
+Repo hiện không có remote nào, nên `.github/workflows/ci.yml` chưa từng chạy. Cho tới khi có
+remote, CI **không phải** là cổng và các kiểm tra phải chạy tay trước khi merge.
+
+Đã quét bí mật trên toàn bộ 54 commit trước khi khuyến nghị push: không có khóa thật nào trong
+lịch sử; `.env` được `.gitignore` chặn và chỉ `.env.example` được theo dõi. Kích thước pack 26,91 MiB.
+
+```sh
+# 1. Tạo repo PRIVATE trên github.com (đặt tên share-fridge). Không tạo README/gitignore.
+# 2. Từ thư mục dự án trên máy Mac:
+git remote add origin git@github.com:<tài-khoản>/share-fridge.git
+git push -u origin main
+git push origin --tags
+
+# 3. Trên GitHub: Settings -> Branches -> Add branch protection rule cho `main`
+#    - Require a pull request before merging
+#    - Require status checks to pass -> chọn "build-and-test"
+#    - Do not allow bypassing the above settings
+```
+
+Sau bước 3, chạy `bash .claude/skills/flow/runner/flow.sh check C-029` và đóng hai mục Verify còn
+treo: PR thử nghiệm phải báo đỏ khi test hỏng, và Vercel Production Branch phải trỏ về `main`.
+
+**Giữ repo ở chế độ private.** `evidence/` chứa ảnh chụp màn hình và log của môi trường thật; chúng
+đã được kiểm tra là không lộ token, nhưng vẫn là dữ liệu vận hành nội bộ.
+
+### Chạy kiểm tra tay khi chưa có CI
+
+```sh
+npm test          # 118/118 phải pass — bao gồm bộ chống trôi hợp đồng
+npx tsc --noEmit  # phải exit 0
+npm run build     # PHẢI chạy trên máy Mac
+```
+
+`npm run build` không chạy được từ shell Linux của Claude vì `node_modules` chứa binary macOS
+(`@rollup/rollup-darwin-arm64`, `@esbuild/darwin-arm64`). Đây là giới hạn môi trường, không phải
+lỗi mã nguồn — đừng cài đè `node_modules` để "sửa", việc đó sẽ phá môi trường dev trên máy Mac.
+
+### Quy tắc contract sau v3
+
+`flow/05-contract.md` có hai vùng khác nhau và `tests/client_contract.test.js` phân biệt chúng:
+
+- **Bảng endpoint** = tập route PHẢI có thật trong `/api/openapi.json` đang chạy. Thêm một dòng
+  vào đây mà chưa có code sẽ làm test đỏ — đúng như thiết kế.
+- **Planned routes** = route đã thiết kế nhưng chưa xây, có cột `Lands with` chỉ rõ card nào sẽ
+  chuyển nó lên bảng endpoint. Việc chuyển dòng là một phần diff của card đó, không bao giờ là
+  một lần "cập nhật tài liệu" riêng.
