@@ -126,16 +126,26 @@ This revision is ADDITIVE to v2. No v2 shape is changed. Cards implement these r
 incrementally; the spec lands WITH the API per CLAUDE.md. `/api/openapi.json` must show each
 route with correct schemas as its card completes.
 
-## New endpoints
+## Planned routes (NOT yet in the endpoint table — by design)
 
-| Method | Path | Auth | Request shape | Response shape |
+Per CLAUDE.md's standard sequence, "spec lands WITH the API": the endpoint TABLE above is the
+set of routes that must exist in the live `/api/openapi.json`, and `tests/client_contract.test.js`
+enforces exactly that parity. A route that is designed but not built therefore does NOT belong in
+the table yet. Each route below is added to the v2 endpoint table BY ITS IMPLEMENTING CARD, in the
+same change that ships the code and regenerates the runtime spec.
+
+| Route | Auth | Request | Response | Lands with |
 |---|---|---|---|---|
-| DELETE | `/api/rooms/:code` | matching room token + passcode re-entry | `{passcode:string,confirm:"XOA"}` | `{success:true,deleted:{foods:number,shopping_items:number,history:number,push_subscriptions:number,photos:number}}`; 401 wrong passcode, 403 foreign room |
-| DELETE | `/api/auth/account` | valid room token + Google identity token | `{identity_token:string,confirm:"XOA"}` | `{success:true,rooms_deleted:number}`; deletes every room this Google `sub` solely owns, unlinks the identity, revokes sessions |
-| POST | `/api/account/deletion-request` | public/rate-limit | `{code:string,passcode:string,confirm:"XOA"}` | `{success:true,deleted:{...}}`; the app-independent web path Google Play requires; identical destructive semantics, no session needed |
-| GET | `/api/consent` | room token | none | `ConsentState` |
-| PUT | `/api/consent` | room token | `{ai_processing?:boolean,push_notifications?:boolean,photo_storage?:boolean}` | `ConsentState`; partial update, each purpose independent |
-| GET | `/api/bootstrap` | room token | `?room_code=string` | `{room:RoomDetail,foods:FoodItem[],shopping_items:ShoppingItem[],consent:ConsentState,server_time:string}`; one round-trip replacement for the parallel cold-start calls |
+| `DELETE /api/rooms/:code` | matching room token + passcode re-entry | `{passcode:string,confirm:"XOA"}` | `{success:true,deleted:{foods:number,shopping_items:number,history:number,push_subscriptions:number,photos:number}}`, 401 wrong passcode, 403 foreign room | C-032 |
+| `DELETE /api/auth/account` | room token + Google identity token | `{identity_token:string,confirm:"XOA"}` | `{success:true,rooms_deleted:number}`; deletes every room this Google `sub` solely owns, unlinks the identity, revokes sessions | C-032 |
+| `POST /api/account/deletion-request` | public/rate-limit | `{code:string,passcode:string,confirm:"XOA"}` | `{success:true,deleted:{...}}`; the app-independent web path Google Play requires, identical destructive semantics, no session needed | C-032 |
+| `GET /api/consent` | room token | none | `ConsentState` | C-033 |
+| `PUT /api/consent` | room token | `{ai_processing?:boolean,push_notifications?:boolean,photo_storage?:boolean}` | `ConsentState`; partial update, each purpose independent | C-033 |
+| `GET /api/bootstrap` | room token | `?room_code=string` | `{room:RoomDetail,foods:FoodItem[],shopping_items:ShoppingItem[],consent:ConsentState,server_time:string}`; one round-trip replacement for the parallel cold-start calls | C-038 |
+
+The column is deliberately `Route` rather than the `| Method | Path |` shape of the live table, so the
+drift test does not read a planned route as a promise the running server has already broken. Moving a
+row into the table above is part of its card's diff, never a separate documentation catch-up.
 
 ## New shapes
 

@@ -1,42 +1,73 @@
 name: CI
 
+# main = deployable. This workflow is the gate that keeps that true.
+# NOTE (C-029): this repository currently has NO git remote, so this workflow has
+# never executed. It becomes a real gate only once the operator pushes to GitHub and
+# enables branch protection on main. Until then, the same checks must be run locally
+# before merging; see DEPLOY_GUIDE.md.
+
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    outputs:
+      version_code: ${{ steps.versioncode.outputs.value }}
     steps:
     - uses: actions/checkout@v4
-    
+      with:
+        fetch-depth: 0
+
+    # Monotonic Android versionCode derived from main's commit count.
+    # Consumed by the TWA packaging card (C-043). Must never decrease.
+    - name: Compute versionCode
+      id: versioncode
+      run: |
+        VC=$(git rev-list --count origin/main 2>/dev/null || git rev-list --count HEAD)
+        echo "value=$VC" >> "$GITHUB_OUTPUT"
+        echo "versionCode=$VC"
+
     - name: Use Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '22.x'
         cache: 'npm'
-        
+
     - name: Install dependencies
       run: npm ci
-      
+
     - name: Build project
       run: npm run build
-      
-    - name: Run unit tests
+
+    - name: Runtime spec must match its source
+      run: |
+        node server/build-openapi.js --stdout > /tmp/generated.json
+        diff <(jq -S . /tmp/generated.json) <(jq -S . server/openapi.json) \
+          || { echo "server/openapi.json is stale - run npm run api:spec"; exit 1; }
+
+    - name: Run unit and contract tests
       run: npm test
       env:
         SKIP_PROVIDER_TESTS_IF_NO_CREDENTIALS: 'true'
-        
+
     - name: Install Playwright Browsers
+      if: ${{ vars.BASE_URL != '' || secrets.BASE_URL != '' }}
       run: npx playwright install --with-deps chromium
-      
+
     - name: Run Playwright tests
+      if: ${{ vars.BASE_URL != '' || secrets.BASE_URL != '' }}
       run: npm run test:e2e
       env:
-        BASE_URL: ${{ secrets.BASE_URL || 'https://sharefridge.vercel.app' }}
-        
+        BASE_URL: ${{ secrets.BASE_URL || vars.BASE_URL }}
+
     - name: Upload Playwright report
       uses: actions/upload-artifact@v4
       if: always()
