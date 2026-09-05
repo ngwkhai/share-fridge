@@ -304,3 +304,11 @@ test('C024 push config/unsubscribe are implemented, not future stubs: no VAPID m
   const missing=await raw('/api/notifications/subscribe','DELETE',{});
   assert.equal(missing.status,400);assert.equal(missing.body.code,'INVALID_INPUT');
 });
+
+// C-029 CI GATE PROOF - deliberately failing test. This branch is never merged.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+test('C-029 CI gate proof: this test fails on purpose', () => {
+  assert.equal(1, 2, 'deliberate failure to prove CI blocks a red PR');
+});
