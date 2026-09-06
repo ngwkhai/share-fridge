@@ -274,6 +274,28 @@ Exit **0 = bỏ qua build**, exit **1 = build**. Ngược trực giác, dễ đ�
 Cảnh báo: build bị hủy theo cách này **vẫn tính vào hạn mức deployment**. Nên nó tiết kiệm thời
 gian build chứ không tiết kiệm quota — nhánh tích hợp mới là cách tiết kiệm thật.
 
+### Bẫy: viết `[skip` + `ci]` trong COMMIT MESSAGE sẽ bỏ qua CI của chính bạn
+
+GitHub Actions (khác Vercel) CÓ cơ chế bỏ qua sẵn: nếu commit message chứa một trong các chuỗi
+`[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]`, `[actions skip]` thì workflow **không chạy**
+với sự kiện `push` và `pull_request`.
+
+Điều này đã cắn đúng PR viết ra tài liệu này: commit message có câu "Vercel has no built-in
+[skip ci] commit flag" — chỉ là đang TRÍCH DẪN chuỗi đó — và GitHub lập tức bỏ qua CI. Hậu quả:
+
+```
+$ gh api repos/.../pulls/6 --jq '{mergeable, mergeable_state}'
+{"mergeable": true, "mergeable_state": "blocked"}      # thiếu build-and-test bắt buộc
+$ gh api "repos/.../actions/runs?branch=docs/deploy-cadence" --jq .total_count
+0
+```
+
+Branch protection đòi `build-and-test`, mà nó chưa từng chạy, nên PR không merge được — và không
+có thông báo nào nói vì sao. Quy tắc: **khi viết về các chuỗi này, đừng đặt chúng nguyên vẹn trong
+commit message.** Trong file thì vô hại; chỉ commit message mới kích hoạt.
+
+Cách gỡ nếu lỡ dính: push thêm một commit có message sạch, sự kiện `synchronize` sẽ chạy CI.
+
 ## Verify trên preview thay vì production
 
 Mỗi PR sinh một preview deployment có **đủ 14 biến môi trường** như production. Nhưng có hai
