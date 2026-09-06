@@ -112,7 +112,7 @@ Nghiệm thu trên bản Production đã triển khai: từ thiết bị A, ch�
 
 ## C-029 — Nhánh phát hành, remote GitHub và CI làm cổng
 
-**Trạng thái 2026-09-06: đã xong, trừ một mục còn treo (xem cuối mục này).**
+**Trạng thái 2026-09-06: đã xong toàn bộ. `main` giờ tự động deploy production — xem mục THAY ĐỔI HÀNH VI.**
 
 `main` là nhánh phát hành duy nhất. Mọi nhánh `codex/*` đã được merge và xóa; tag
 `archive/main-pre-v7` giữ con trỏ baseline cũ.
@@ -180,34 +180,50 @@ curl -s -H "Authorization: Bearer $VERCEL_TOKEN" \
   | python3 -c "import sys,json;print(json.load(sys.stdin)['meta']['gitCommitSha'])"
 ```
 
-### CÒN TREO — nối repo vào Vercel (cần operator đăng nhập)
+### Nối repo vào Vercel — đã xong 2026-09-06
 
-`vercel git connect` trả 400:
+`vercel git connect` ban đầu trả 400:
 
 ```
 Error: Failed to link ngwkhai/share-fridge. You need to add a Login Connection
 to your GitHub account first. (400)
 ```
 
-Nguyên nhân thật sự, tìm ra khi mở dashboard: **có HAI tài khoản Vercel khác nhau.**
+Nguyên nhân: có HAI tài khoản Vercel, và CLI đang dùng tài khoản sở hữu dự án
+(`khaindhrt-9606` / khaind.hrt@gmail.com) nhưng tài khoản đó chưa nối GitHub.
 
-| | Tài khoản | GitHub Login Connection | Thấy dự án sharefridge? |
-|---|---|---|---|
-| Vercel CLI đang dùng | `khaindhrt-9606` (khaind.hrt@gmail.com) | **chưa có** | Có — là OWNER của team `khaindhrt-9606s-projects` |
-| Trình duyệt đang đăng nhập | `nguyendinhkhaiqt2005-8486` (nguyendinhkhaiqt2005@gmail.com) | **đã nối `ngwkhai`** | Không — mở URL dự án trả 404 |
+**Điểm dễ nhầm:** đăng nhập đúng tài khoản thôi CHƯA đủ. Vào Settings → Authentication,
+dòng GitHub vẫn ở trạng thái "Connect your GitHub account" và phải bấm **Connect** để chạy
+luồng OAuth. Nối xong thì `vercel git connect` chạy được ngay:
 
-Nghĩa là GitHub `ngwkhai` hiện đã bị "chiếm" bởi tài khoản Vercel KHÔNG sở hữu dự án. Một
-danh tính GitHub chỉ gắn được vào một tài khoản Vercel, nên thứ tự bắt buộc là:
+```sh
+npx vercel whoami                 # phải ra khaindhrt-9606
+npx vercel git connect https://github.com/ngwkhai/share-fridge --yes
+# > Connected
+```
 
-1. Đăng nhập vercel.com bằng **khaind.hrt@gmail.com** (tài khoản sở hữu dự án).
-2. Nếu Vercel từ chối vì `ngwkhai` đã được dùng: đăng nhập
-   `nguyendinhkhaiqt2005@gmail.com` → Settings → Authentication → **tháo** GitHub.
-3. Quay lại `khaind.hrt@gmail.com` → Settings → Authentication → **Add** GitHub (`ngwkhai`).
-4. Báo lại — Claude chạy `vercel git connect https://github.com/ngwkhai/share-fridge`,
-   đặt Production Branch = `main`, rồi verify bằng một deployment sinh từ commit trên main.
+Lo ngại "một danh tính GitHub chỉ gắn được một tài khoản Vercel" hóa ra KHÔNG chặn — không
+cần tháo `ngwkhai` khỏi tài khoản `nguyendinhkhaiqt2005-8486` trước.
 
-Cho đến khi bước đó xong, production vẫn lên bằng `vercel deploy` từ CLI như từ trước đến
-nay. **Chưa nối Git nghĩa là push lên main CHƯA tự động deploy** — đừng tưởng ngược lại.
+`productionBranch` đã là `main` sẵn ngay khi nối. Kiểm chứng:
+
+```sh
+curl -s -H "Authorization: Bearer $VERCEL_TOKEN" \
+  "https://api.vercel.com/v9/projects/<projectId>?teamId=<teamId>" \
+  | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['link']['productionBranch'], d['link']['org']+'/'+d['link']['repo'])"
+# main ngwkhai/share-fridge
+```
+
+### THAY ĐỔI HÀNH VI — đọc kỹ trước lần push tiếp theo
+
+Từ 2026-09-06, **`main` tự động deploy production.** Mọi commit vào main sinh một bản
+production mới. Kèm theo:
+
+- Không push thẳng vào main được nữa — branch protection từ chối (`GH006`), phải đi qua PR.
+- Merge PR = phát hành. Không merge khi chưa muốn lên production.
+- `vercel deploy` từ CLI vẫn chạy được, nhưng đừng dùng song song: nó tạo bản production
+  KHÔNG gắn với commit nào trên main, đúng cái vòng luẩn quẩn mà C-029 vừa gỡ.
+- Trước khi gắn tag phát hành, vẫn đọc `meta.gitCommitSha` của deployment (xem Bài học 3).
 
 ### Đổi lại token Vercel CLI khi hết hạn
 
