@@ -91,6 +91,24 @@ gh pr close <n> --delete-branch
 
 Keep the run URL. That URL is the evidence; "the workflow looks right" is not.
 
+## Gotcha 4b: quoting `[skip` `ci]` in a commit message skips your own CI
+
+GitHub Actions honours `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]` and
+`[actions skip]` in a commit message for `push` and `pull_request` events. Merely *quoting*
+one of those strings — in a commit that documents them, say — silently skips the run.
+
+The failure is quiet and confusing when branch protection is on: the PR shows
+`mergeable_state: blocked` for a missing required check that never ran, and nothing explains why.
+
+```sh
+gh api "repos/<owner>/<repo>/actions/runs?branch=<branch>" --jq '.total_count'   # 0
+gh api repos/<owner>/<repo>/pulls/<n> --jq '{mergeable, mergeable_state}'
+```
+
+Never put those strings verbatim in a commit message you do not intend to act on. File
+contents are safe — only the commit message is scanned. To recover, push another commit with a
+clean message; the `synchronize` event runs CI.
+
 ## Gotcha 5: tag the commit the platform actually built
 
 Do not infer the released commit from your own build log. Ask the platform:
