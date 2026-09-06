@@ -220,10 +220,114 @@ Từ 2026-09-06, **`main` tự động deploy production.** Mọi commit vào ma
 production mới. Kèm theo:
 
 - Không push thẳng vào main được nữa — branch protection từ chối (`GH006`), phải đi qua PR.
-- Merge PR = phát hành. Không merge khi chưa muốn lên production.
+- Merge PR vào `main` = phát hành. Không merge khi chưa muốn lên production.
+  Nhưng ĐỪNG suy ra "mỗi thẻ phải deploy một lần" — xem mục **Nhịp deploy** ngay bên dưới:
+  gộp nhiều thẻ qua một nhánh tích hợp rồi merge một lần là cách làm mặc định nên dùng.
 - `vercel deploy` từ CLI vẫn chạy được, nhưng đừng dùng song song: nó tạo bản production
   KHÔNG gắn với commit nào trên main, đúng cái vòng luẩn quẩn mà C-029 vừa gỡ.
 - Trước khi gắn tag phát hành, vẫn đọc `meta.gitCommitSha` của deployment (xem Bài học 3).
+
+## Nhịp deploy — quyết định của OPERATOR, không phải luật cứng
+
+Từ khi `main` nối Git, mỗi lần merge sinh một bản production. Dễ hiểu nhầm thành "mỗi thẻ
+phải deploy một lần". KHÔNG phải. **Nhịp deploy là lựa chọn của operator theo từng nhóm việc.**
+Ba nhịp đều hợp lệ:
+
+| Nhịp | Khi nào dùng | Chi phí |
+|---|---|---|
+| **Mỗi thẻ một lần** | Thẻ đụng mã sản phẩm, hoặc cần bằng chứng production ngay | 1 preview + 1 production / thẻ |
+| **Gộp nhiều thẻ** | Chuỗi thẻ chỉ có ý nghĩa khi lên cùng nhau (vd nhiều trang tĩnh, nhiều endpoint của một nhóm) | 1 production cho cả cụm |
+| **Hotfix** | Sự cố production | Ngay lập tức, bỏ qua gộp |
+
+Mặc định nên là **gộp**. Deploy từng thẻ chỉ tạo thêm bản production không ai xem, mà mỗi bản
+vẫn tính vào hạn mức.
+
+### Cách gộp: nhánh tích hợp
+
+Cách chắc chắn nhất, không phụ thuộc cấu hình Vercel:
+
+```sh
+git checkout main && git pull
+git checkout -b release/v7-phap-ly          # nhánh tích hợp cho cả cụm thẻ
+
+# từng thẻ vẫn một nhánh + một PR, nhưng PR nhắm vào nhánh tích hợp
+git checkout -b card/C-031
+gh pr create --base release/v7-phap-ly --title "C-031: ..."
+```
+
+Merge từng thẻ vào `release/*` (không deploy production, vì Vercel chỉ auto-deploy production
+từ `main`), rồi khi cả cụm xong mở MỘT PR `release/* -> main`. Một lần merge, một bản production
+mang cả cụm.
+
+Lưu ý: PR nhắm vào `release/*` vẫn sinh **preview deployment** — đó là thứ dùng để verify.
+
+### Cách gộp thứ hai: Ignored Build Step
+
+Vercel **không có** cờ `[skip ci]` sẵn trong commit message. Muốn có thì phải tự đặt lệnh trong
+Project Settings -> Git -> **Ignored Build Step**, đọc biến `VERCEL_GIT_COMMIT_MESSAGE`:
+
+```sh
+if echo "$VERCEL_GIT_COMMIT_MESSAGE" | grep -q '\[skip deploy\]'; then exit 0; else exit 1; fi
+```
+Exit **0 = bỏ qua build**, exit **1 = build**. Ngược trực giác, dễ đặt nhầm.
+
+Cảnh báo: build bị hủy theo cách này **vẫn tính vào hạn mức deployment**. Nên nó tiết kiệm thời
+gian build chứ không tiết kiệm quota — nhánh tích hợp mới là cách tiết kiệm thật.
+
+## Verify trên preview thay vì production
+
+Mỗi PR sinh một preview deployment có **đủ 14 biến môi trường** như production. Nhưng có hai
+cái bẫy phải biết trước khi tin vào nó:
+
+### Bẫy 1 — preview bị SSO chặn, `curl` trần trả 302
+
+`ssoProtection = {"deploymentType": "all_except_custom_domains"}`. Gọi thẳng sẽ bị đẩy sang
+`vercel.com/sso-api`, KHÔNG phải app hỏng:
+
+```sh
+$ curl -o /dev/null -w '%{http_code}' https://sharefridge-git-<branch>-...vercel.app/healthz
+302
+```
+
+Dự án đã có sẵn một **automation bypass token** (Project Settings -> Deployment Protection).
+Đưa vào header là gọi được:
+
+```sh
+$ curl -H "x-vercel-protection-bypass: <token>" https://sharefridge-git-<branch>-...vercel.app/healthz
+{"status":"ok","version":"1.0.0","timestamp":"..."}      HTTP 200
+```
+
+Đọc token từ project settings (nó cũng có sẵn dưới dạng biến môi trường), đừng chép cứng vào
+repo.
+
+### Bẫy 2 — preview DÙNG CHUNG database với production
+
+`DATABASE_URL` trên target `preview` và `production` là **cùng một giá trị**. Nghĩa là mọi thao
+tác ghi khi verify trên preview đều rơi vào **database production thật**.
+
+Hệ quả bắt buộc nhớ:
+
+- Verify chỉ-đọc trên preview: an toàn.
+- Verify có ghi (tạo phòng, thêm món, xóa): **đang sửa dữ liệu production**. Dùng phòng dùng-một-lần
+  và dọn sau, đúng như các card C-018..C-025 đã làm.
+- Đừng coi preview là môi trường staging. Nó là production với một URL khác.
+
+### Thẻ nào KHÔNG được verify bằng preview
+
+Bằng chứng phải là production thật khi thẻ nói về chính hạ tầng phát hành:
+
+- Thẻ hợp đồng / e2e chạy trên URL production
+- Thẻ đụng domain, Digital Asset Links, PWA manifest (`sharefridge.vercel.app` mới là cái Google đọc)
+- Thẻ phát hành, tag, rollback
+
+## Quan hệ với luật trong CLAUDE.md
+
+CLAUDE.md ghi "Merge != shipped" và "done-evidence = world-state (deployed URL)". Cách gộp ở trên
+KHÔNG phá luật đó, nó chỉ dời thời điểm:
+
+- Thẻ verify trên preview -> dán bằng chứng preview vào `## Evidence`, ghi rõ **là preview**.
+- Khi cụm merge vào `main`, xác nhận lại trên production bằng một dòng `curl` và dán vào thẻ.
+- Thẻ nào chưa có xác nhận production thì `## Evidence` phải nói thẳng là PARTIAL — không làm tròn lên.
 
 ### Đổi lại token Vercel CLI khi hết hạn
 
